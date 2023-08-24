@@ -13,3 +13,22 @@ CREATE TABLE users(
     email_address VARCHAR(100),
     birthdate DATE
 );
+
+-- Para la relación One-to-One: owners y addresses
+DROP TABLE IF EXISTS addresses;
+DROP TABLE IF EXISTS owners;
+
+CREATE TABLE owners(
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    full_name VARCHAR(100) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    username VARCHAR(100) NOT NULL
+);
+
+CREATE TABLE addresses(
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    owner_id INT NOT NULL,
+    address_line TEXT NOT NULL,
+    CONSTRAINT uq_owner_id UNIQUE(owner_id),
+    CONSTRAINT fk_owners_addresses FOREIGN KEY(owner_id) REFERENCES owners(id)
+);

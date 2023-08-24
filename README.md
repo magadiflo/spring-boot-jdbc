@@ -379,3 +379,246 @@ Revisando la consola del IDE IntelliJ IDEA muestro parte del log:
 DEBUG 6376 --- [nio-8080-exec-2] o.s.jdbc.core.JdbcTemplate               : Executing prepared SQL query
 DEBUG 6376 --- [nio-8080-exec-2] o.s.jdbc.core.JdbcTemplate               : Executing prepared SQL statement [SELECT `users`.`id` AS `id`, `users`.`enabled` AS `enabled`, `users`.`username` AS `username`, `users`.`last_name` AS `last_name`, `users`.`password` AS `password`, `users`.`first_name` AS `first_name`, `users`.`birthdate` AS `birthdate`, `users`.`email_address` AS `email_address`, `users`.`account_non_locked` AS `account_non_locked`, `users`.`account_non_expired` AS `account_non_expired`, `users`.`credentials_non_expired` AS `credentials_non_expired` FROM `users`]
 ````
+
+---
+
+## Relaciones con Spring Data JDBC
+
+Spring Data JDBC adopta un enfoque diferente para las relaciones. Principalmente que **no hay carga diferida**, por
+lo que si alguna vez no desea una relación en una Entidad, déjela fuera de la clase. Esto proviene del concepto de que
+**en Domain Driven Design nuestras entidades que estamos recuperando son raíces agregadas (aggregate roots)**, por lo
+que, por diseño, los agregados deberían retirar otras clases.
+
+Recordemos que **Spring Data Jdbc no puede crear tablas de bases de datos**, tenemos que hacerlo nosotros mismos, de
+manera manual, tal como lo hicimos en el apartado anterior creando la tabla de **users**. En este apartado crearemos
+más tablas para poder ejemplificar las relaciones `One-to-One y One-to-Many` de las entidades mapeadas a las tablas
+de la base de datos.
+
+## Relación One-to-One
+
+Modificamos los archivos `schema.sql` y `data.sql` para agregar la creación de las dos tablas y poblarlas:
+
+````sql
+-- Para la relación One-to-One: owners y addresses
+DROP TABLE IF EXISTS addresses;
+DROP TABLE IF EXISTS owners;
+
+CREATE TABLE owners(
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    full_name VARCHAR(100) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    username VARCHAR(100) NOT NULL
+);
+
+CREATE TABLE addresses(
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    owner_id INT NOT NULL,
+    address_line TEXT NOT NULL,
+    CONSTRAINT uq_owner_id UNIQUE(owner_id),
+    CONSTRAINT fk_owners_addresses FOREIGN KEY(owner_id) REFERENCES owners(id)
+);
+````
+
+Es importante notar aquí, que como estamos viendo las relaciones `One-to-One`, es que agregamos la restricción de
+columna **UNIQUE** a la columna `owner_id` (foreign key) en el esquema anterior.
+
+````sql
+-- Para la relación One-to-One: owners y addresses
+INSERT INTO owners(id, full_name, email, username) VALUES(10, 'Martín Díaz', 'martin@gmail.com', 'martin');
+INSERT INTO owners(id, full_name, email, username) VALUES(20, 'Karen Caldas', 'karen@gmail.com', 'karen');
+
+INSERT INTO addresses(id, owner_id, address_line) VALUES(1, 10, 'Av. José Olaya, Chimbote');
+INSERT INTO addresses(id, owner_id, address_line) VALUES(2, 20, 'Pichari, La Convención, Cuzco');
+````
+
+Creamos las entidades `Owner` y `Address`:
+
+````java
+import lombok.Builder;
+import lombok.Data;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Column;
+import org.springframework.data.relational.core.mapping.Table;
+
+@Data
+@Builder
+@Table(name = "owners")
+public class Owner {
+    @Id
+    private Integer id;
+    private String fullName;
+    private String email;
+    private String username;
+
+    @MappedCollection(idColumn = "owner_id")
+    private Address address;
+}
+````
+
+En la entidad `Owner` hemos definido un atributo `address` del tipo de la entidad `Address`, de esta manera ambas
+entidades están siendo asociadas a nivel de clases. Ahora, a nivel de base de datos le decimos a Spring Data Jdbc que la
+tabla `addresses` tiene una columna llamada `owner_id` (foreign key), por eso agregamos la anotación
+`@MappedCollection(idColumn = "owner_id")` sobre el atributo `Address`.
+
+**NOTA:**
+[Fuente: docs.spring](https://docs.spring.io/spring-data/jdbc/docs/2.4.14/reference/html/#jdbc.entity-persistence.custom-column-name)
+
+> Para relaciones de `One-to-One` y `One-to-Many` utilizamos la misma anotación `@MappedCollection`. Es decir,
+> La anotación `@MappedCollection` se puede utilizar en un tipo de referencia **(relación uno a uno)** o en Sets, Lists
+> y Maps **(relación uno a muchos).**
+
+````java
+import lombok.Builder;
+import lombok.Data;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Table;
+
+@Data
+@Builder
+@Table(name = "addresses")
+public class Address {
+    @Id
+    private Integer id;
+    private String addressLine;
+}
+````
+
+Como la entidad `Owner` es una entidad padre o raíz, mientras que la entidad `Address` es una entidad que en la base de
+datos tiene una clave foránea a la entidad `owners`, entonces podríamos decir que es una entidad hija, en ese sentido
+es que **solo necesitamos crear una interfaz de repositorio para la entidad padre**, ya que este traerá consigo las
+entidades relacionadas:
+
+````java
+public interface IOwnerRepository extends ListCrudRepository<Owner, Integer> {
+}
+````
+
+Creamos nuestra clase de servicio:
+
+````java
+
+@RequiredArgsConstructor
+@Service
+public class OwnerService {
+    private final IOwnerRepository ownerRepository;
+
+    @Transactional(readOnly = true)
+    public List<Owner> getAllOwners() {
+        return this.ownerRepository.findAll();
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<Owner> getOwner(Integer id) {
+        return this.ownerRepository.findById(id);
+    }
+}
+````
+
+Ahora creamos nuestra clase de controlador:
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/owners")
+public class OwnerController {
+    private final OwnerService ownerService;
+
+    @GetMapping
+    public ResponseEntity<List<Owner>> getOwners() {
+        return ResponseEntity.ok(this.ownerService.getAllOwners());
+    }
+
+    @GetMapping(path = "/{id}")
+    public ResponseEntity<Owner> getOwner(@PathVariable Integer id) {
+        return this.ownerService.getOwner(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+}
+````
+
+Ejecutando la aplicación:
+
+````bash
+curl -v http://localhost:8080/api/v1/owners | jq
+
+--- Respuesta
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+[
+  {
+    "id": 10,
+    "fullName": "Martín Díaz",
+    "email": "martin@gmail.com",
+    "username": "martin",
+    "address": {
+      "id": 1,
+      "addressLine": "Av. José Olaya, Chimbote"
+    }
+  },
+  {
+    "id": 20,
+    "fullName": "Karen Caldas",
+    "email": "karen@gmail.com",
+    "username": "karen",
+    "address": {
+      "id": 2,
+      "addressLine": "Pichari, La Convención, Cuzco"
+    }
+  }
+]
+````
+
+La consulta mostrada en consola fue la siguiente:
+
+````roomsql
+SELECT `owners`.`id` AS `id`, `owners`.`email` AS `email`, `owners`.`full_name` AS `full_name`, `owners`.`username` AS `username`, 
+    `address`.`id` AS `address_id`, `address`.`address_line` AS `address_address_line` 
+FROM `owners` 
+    LEFT OUTER JOIN `addresses` `address` ON `address`.`owner_id` = `owners`.`id`
+````
+
+Buscando un Owner por su id:
+
+````bash
+curl -v http://localhost:8080/api/v1/owners/20 | jq
+
+--- Respuesta
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "id": 20,
+  "fullName": "Karen Caldas",
+  "email": "karen@gmail.com",
+  "username": "karen",
+  "address": {
+    "id": 2,
+    "addressLine": "Pichari, La Convención, Cuzco"
+  }
+}
+````
+
+Para este último request, estamos observando no solo la sentencia SQL generada (gracias a la configuración en el
+application.properties del JdbcTemplate), sino también el parámetro que se le pasó a la sentencia (gracias a la
+configuración en el application.properties del StatementCreatorUtils).
+
+````bash
+DEBUG 3192 --- [nio-8080-exec-5] o.s.jdbc.core.JdbcTemplate               : Executing prepared SQL query
+DEBUG 3192 --- [nio-8080-exec-5] o.s.jdbc.core.JdbcTemplate               : Executing prepared SQL statement [SELECT `owners`.`id` AS `id`, `owners`.`email` AS `email`, `owners`.`full_name` AS `full_name`, `owners`.`username` AS `username`, `address`.`id` AS `address_id`, `address`.`address_line` AS `address_address_line` FROM `owners` LEFT OUTER JOIN `addresses` `address` ON `address`.`owner_id` = `owners`.`id` WHERE `owners`.`id` = ?]
+TRACE 3192 --- [nio-8080-exec-5] o.s.jdbc.core.StatementCreatorUtils      : Setting SQL statement parameter value: column index 1, parameter value [20], value class [java.lang.Integer], SQL type 4
+````
+
+Si organizamos mejor la consulta que obtuvimos en consola veremos lo siguiente:
+
+````roomsql
+SELECT `owners`.`id` AS `id`, `owners`.`email` AS `email`, `owners`.`full_name` AS `full_name`, `owners`.`username` AS `username`, 
+    `address`.`id` AS `address_id`, `address`.`address_line` AS `address_address_line` 
+FROM `owners` 
+    LEFT OUTER JOIN `addresses` `address` ON `address`.`owner_id` = `owners`.`id` 
+WHERE `owners`.`id` = ?
+````
