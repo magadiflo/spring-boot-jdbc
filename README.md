@@ -466,6 +466,9 @@ tabla `addresses` tiene una columna llamada `owner_id` (foreign key), por eso ag
 > Para relaciones de `One-to-One` y `One-to-Many` utilizamos la misma anotación `@MappedCollection`. Es decir,
 > La anotación `@MappedCollection` se puede utilizar en un tipo de referencia **(relación uno a uno)** o en Sets, Lists
 > y Maps **(relación uno a muchos).**
+>
+> El elemento **idColumn de la anotación** proporciona un nombre personalizado para la columna **foreign key** que hace
+> referencia a la columna de identificación en la otra tabla.
 
 ````java
 import lombok.Builder;
@@ -621,4 +624,315 @@ SELECT `owners`.`id` AS `id`, `owners`.`email` AS `email`, `owners`.`full_name` 
 FROM `owners` 
     LEFT OUTER JOIN `addresses` `address` ON `address`.`owner_id` = `owners`.`id` 
 WHERE `owners`.`id` = ?
+````
+
+## Relación One-to-Many
+
+Modificamos los archivos `schema.sql` y `data.sql` para agregar la creación de las dos tablas y poblarlas:
+
+````sql
+-- Para la relación One-to-Many: tasks y comments
+DROP TABLE IF EXISTS comments;
+DROP TABLE IF EXISTS tasks;
+
+CREATE TABLE tasks(
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(100) NOT NULL,
+    content TEXT NOT NULL,
+    published_on DATETIME NOT NULL,
+    updated_on DATETIME
+);
+
+CREATE TABLE comments(
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    task_id INT NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    content TEXT NOT NULL,
+    published_on DATETIME NOT NULL,
+    updated_on DATETIME,
+    CONSTRAINT fk_tasks_comments FOREIGN KEY(task_id) REFERENCES tasks(id)
+);
+````
+
+````sql
+-- Para la relación One-to-Many: tasks y comments
+INSERT INTO tasks(id, title, content, published_on, updated_on) VALUES(10, 'Proyecto envío email', 'Este proyecto enviará emails', now(), now());
+INSERT INTO tasks(id, title, content, published_on, updated_on) VALUES(20, 'Renovación jardinería', 'Este proyecto renovará el jardín', now(), now());
+INSERT INTO tasks(id, title, content, published_on, updated_on) VALUES(30, 'Pintado fachada', 'Trabajamos para remodelar fachada', now(), now());
+INSERT INTO tasks(id, title, content, published_on, updated_on) VALUES(40, 'Compra mercado', 'Compras del mes', now(), now());
+
+INSERT INTO comments(id, task_id, name, content, published_on, updated_on) VALUES(1, 10, 'Desarrollador Senior', 'Me uno al proyecto', now(), now());
+INSERT INTO comments(id, task_id, name, content, published_on, updated_on) VALUES(2, 10, 'Desarrollador Junior', 'Quiero participar', now(), now());
+INSERT INTO comments(id, task_id, name, content, published_on, updated_on) VALUES(3, 20, 'vecino', 'Excelente decisión', now(), now());
+INSERT INTO comments(id, task_id, name, content, published_on, updated_on) VALUES(4, 30, 'Karen', 'Colores suaves sería genial', now(), now());
+````
+
+Creamos las entidades `Task` y `Comment`:
+
+````java
+import lombok.Builder;
+import lombok.Data;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.MappedCollection;
+import org.springframework.data.relational.core.mapping.Table;
+
+import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.Set;
+
+@Data
+@Builder
+@Table(name = "tasks")
+public class Task {
+    @Id
+    private Integer id;
+    private String title;
+    private String content;
+    private LocalDateTime publishedOn;
+    private LocalDateTime updatedOn;
+
+    @MappedCollection(idColumn = "task_id")
+    private Set<Comment> comments = new HashSet<>();
+
+    public void addComment(Comment comment) {
+        this.comments.add(comment);
+    }
+
+    public void removeComment(Comment comment) {
+        this.comments.remove(comment);
+    }
+}
+````
+
+Al igual que en la relación de `Onte-to-One`, aquí también usaremos la anotación `@MappedCollection`, pero en este caso
+anotado sobre un atributo de colección como `Set`. A nivel de base de datos, lo definido en `idColumn = "task_id"`
+representa la **clave foránea en la tabla comments que hace referencia al id de la tabla tasks**.
+
+````java
+import lombok.Builder;
+import lombok.Data;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Table;
+
+import java.time.LocalDateTime;
+import java.util.Objects;
+
+@Data
+@Builder
+@Table(name = "comments")
+public class Comment {
+    @Id
+    private Integer id;
+    private String name;
+    private String content;
+    private LocalDateTime publishedOn;
+    private LocalDateTime updatedOn;
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        Comment comment = (Comment) o;
+        return Objects.equals(id, comment.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id);
+    }
+}
+````
+
+Creando el repositorio para la entidad `Task`:
+
+````java
+public interface ITaskRepository extends ListCrudRepository<Task, Integer> {
+}
+````
+
+Creamos nuestra clase de servicio:
+
+````java
+
+@RequiredArgsConstructor
+@Service
+public class TaskService {
+    private final ITaskRepository taskRepository;
+
+    @Transactional(readOnly = true)
+    public List<Task> findAllTasks() {
+        return this.taskRepository.findAll();
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<Task> getTask(Integer id) {
+        return this.taskRepository.findById(id);
+    }
+}
+````
+
+Ahora creamos nuestra clase de controlador:
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/tasks")
+public class TaskController {
+    private final TaskService taskService;
+
+    @GetMapping
+    public ResponseEntity<List<Task>> findAllTasks() {
+        return ResponseEntity.ok(this.taskService.findAllTasks());
+    }
+
+    @GetMapping(path = "/{id}")
+    public ResponseEntity<Task> getTask(@PathVariable Integer id) {
+        return this.taskService.getTask(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+}
+````
+
+Ejecutando la aplicación:
+
+````bash
+curl -v http://localhost:8080/api/v1/tasks | jq
+
+--- Respuesta
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+[
+  {
+    "id": 10,
+    "title": "Proyecto envío email",
+    "content": "Este proyecto enviará emails",
+    "publishedOn": "2023-08-24T12:35:25",
+    "updatedOn": "2023-08-24T12:35:25",
+    "comments": [
+      {
+        "id": 1,
+        "name": "Desarrollador Senior",
+        "content": "Me uno al proyecto",
+        "publishedOn": "2023-08-24T12:35:25",
+        "updatedOn": "2023-08-24T12:35:25"
+      },
+      {
+        "id": 2,
+        "name": "Desarrollador Junior",
+        "content": "Quiero participar",
+        "publishedOn": "2023-08-24T12:35:25",
+        "updatedOn": "2023-08-24T12:35:25"
+      }
+    ]
+  },
+  {
+    "id": 20,
+    "title": "Renovación jardinería",
+    "content": "Este proyecto renovará el jardín",
+    "publishedOn": "2023-08-24T12:35:25",
+    "updatedOn": "2023-08-24T12:35:25",
+    "comments": [
+      {
+        "id": 3,
+        "name": "vecino",
+        "content": "Excelente decisión",
+        "publishedOn": "2023-08-24T12:35:25",
+        "updatedOn": "2023-08-24T12:35:25"
+      }
+    ]
+  },
+  {
+    "id": 30,
+    "title": "Pintado fachada",
+    "content": "Trabajamos para remodelar fachada",
+    "publishedOn": "2023-08-24T12:35:25",
+    "updatedOn": "2023-08-24T12:35:25",
+    "comments": [
+      {
+        "id": 4,
+        "name": "Karen",
+        "content": "Colores suaves sería genial",
+        "publishedOn": "2023-08-24T12:35:25",
+        "updatedOn": "2023-08-24T12:35:25"
+      }
+    ]
+  },
+  {
+    "id": 40,
+    "title": "Compra mercado",
+    "content": "Compras del mes",
+    "publishedOn": "2023-08-24T12:35:25",
+    "updatedOn": "2023-08-24T12:35:25",
+    "comments": []
+  }
+]
+````
+
+Las consultas mostradas en consola fueron las siguientes:
+
+**Consulta general:**
+
+````roomsql
+SELECT `tasks`.`id` AS `id`, `tasks`.`title` AS `title`, `tasks`.`content` AS `content`, `tasks`.`updated_on` AS `updated_on`, `tasks`.`published_on` AS `published_on` 
+FROM `tasks`
+````
+
+**Obteniendo comments para cada task. En el ejemplo siguiente solo se muestra para el task con id 10:**
+
+````roomsql
+SELECT `comments`.`id` AS `id`, `comments`.`name` AS `name`, `comments`.`content` AS `content`, `comments`.`updated_on` AS `updated_on`, `comments`.`published_on` AS `published_on` 
+FROM `comments` WHERE `comments`.`task_id` = ?
+
+--Setting SQL statement parameter value: column index 1, parameter value [10], value class [java.lang.Integer], SQL type 4
+````
+
+Buscando un Task por su id:
+
+````bash
+curl -v http://localhost:8080/api/v1/tasks/20 | jq
+
+--- Respuesta
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "id": 20,
+  "title": "Renovación jardinería",
+  "content": "Este proyecto renovará el jardín",
+  "publishedOn": "2023-08-24T12:35:25",
+  "updatedOn": "2023-08-24T12:35:25",
+  "comments": [
+    {
+      "id": 3,
+      "name": "vecino",
+      "content": "Excelente decisión",
+      "publishedOn": "2023-08-24T12:35:25",
+      "updatedOn": "2023-08-24T12:35:25"
+    }
+  ]
+}
+````
+
+La consulta mostrada en consola fue la siguiente:
+
+**Primero busca el task con id = 20:**
+
+````roomsql
+SELECT `tasks`.`id` AS `id`, `tasks`.`title` AS `title`, `tasks`.`content` AS `content`, `tasks`.`updated_on` AS `updated_on`, `tasks`.`published_on` AS `published_on` 
+FROM `tasks` WHERE `tasks`.`id` = ?
+--Setting SQL statement parameter value: column index 1, parameter value [20], value class [java.lang.Integer], SQL type 4
+````
+
+**Luego, busca todos los comments con task_id = 20:**
+
+````roomsql
+SELECT `comments`.`id` AS `id`, `comments`.`name` AS `name`, `comments`.`content` AS `content`, `comments`.`updated_on` AS `updated_on`, `comments`.`published_on` AS `published_on` 
+FROM `comments` 
+WHERE `comments`.`task_id` = ?
+--Setting SQL statement parameter value: column index 1, parameter value [20], value class [java.lang.Integer], SQL type 4
 ````

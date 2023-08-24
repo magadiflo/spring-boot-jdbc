@@ -32,3 +32,25 @@ CREATE TABLE addresses(
     CONSTRAINT uq_owner_id UNIQUE(owner_id),
     CONSTRAINT fk_owners_addresses FOREIGN KEY(owner_id) REFERENCES owners(id)
 );
+
+-- Para la relación One-to-Many: tasks y comments
+DROP TABLE IF EXISTS comments;
+DROP TABLE IF EXISTS tasks;
+
+CREATE TABLE tasks(
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(100) NOT NULL,
+    content TEXT NOT NULL,
+    published_on DATETIME NOT NULL,
+    updated_on DATETIME
+);
+
+CREATE TABLE comments(
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    task_id INT NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    content TEXT NOT NULL,
+    published_on DATETIME NOT NULL,
+    updated_on DATETIME,
+    CONSTRAINT fk_tasks_comments FOREIGN KEY(task_id) REFERENCES tasks(id)
+);
