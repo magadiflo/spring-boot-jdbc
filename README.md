@@ -936,3 +936,530 @@ FROM `comments`
 WHERE `comments`.`task_id` = ?
 --Setting SQL statement parameter value: column index 1, parameter value [20], value class [java.lang.Integer], SQL type 4
 ````
+
+## Agregados y Agregado raíz (Aggregates and Aggregate Root)
+
+[Fuente: Docs.spring](https://docs.spring.io/spring-data/jdbc/docs/2.4.14/reference/html/#jdbc.domain-driven-design)  
+[Fuente: deviq](https://deviq.com/domain-driven-design/aggregate-pattern)  
+[Fuente: koalite](https://blog.koalite.com/2015/03/como-elegir-aggregate-roots/)  
+[Fuente: José Cuéllar](https://josecuellar.net/domain-driven-design-modules-aggregates/)
+
+Todos los módulos de Spring Data están inspirados en los conceptos de **"repositorio", "agregado" y "raíz agregada"** de
+**Domain Driven Design.**
+
+Un **aggregate** es una colección de una o más entidades relacionadas (y posiblemente objetos de valor). Cada agregado
+tiene una sola entidad raíz, denominada **aggregate root**. El aggregate root **es responsable de controlar el acceso a
+todos los miembros de su agregado.** Es perfectamente **aceptable tener agregados de una sola entidad**, en cuyo caso
+esa entidad es en sí misma la raíz de su agregado. Además de controlar el acceso, la raíz agregada también es
+responsable de garantizar la consistencia del agregado. Es por eso que es importante asegurarse de que la raíz agregada
+no exponga directamente a sus hijos, sino que controle el acceso a sí misma.
+
+Una característica que deben cumplir los **aggregate root** es que son las únicas entidades que retornan los
+repositorios.
+
+**Los aggregates proveen un agrupamiento lógico de Entidades y Objetos-Valor.** El **aggregate root actúa de punto de
+entrada para ese conjunto,** encargándose de las normas y restricciones que deban cumplir las colecciones de hijos.
+
+Un agregado es un grupo de clases que mantienen un invariante de forma conjunta. La raíz de ese agregado es el objeto
+«padre» que nos permite interactuar con el grupo de clases.
+
+La existencia de la agregación se da en una sola dirección, si la raíz es eliminada, todo los objetos agregados a ella
+también deberán ser eliminadas, no tienen sentido de existencia si la raíz deja de existir.
+
+Si trabajamos con **agregados**, deberíamos seguir ciertas **reglas innegociables:**
+
+- Todas **las interacciones con clases que forman parte de un agregado deberíamos hacerlas a través del
+  aggregate root.** Esto es necesario para que podamos garantizar los invariantes.
+- **Solo podemos recuperar de la base de datos (a través de repositorios o como más te guste) aggregate roots.** Nunca
+  recuperaremos entidades internas al agregado.
+- **Si necesitamos mantener una relaciones entre entidades de diferentes agregados, siempre será hacia el aggregate
+  root,** nunca hacia clases internas del agregado.
+
+Los **agregados** pueden relacionarse entre sí **únicamente mediante los identificadores de su entidad raíz:**
+
+![referencia-otros-agregados.png](./assets/referencia-otros-agregados.png)
+
+**Debemos evitar las propiedades asociativas** conteniendo la instancia de la entidad root del otro agregado.
+**Realizaremos dicha referencia mediante su identificador almacenado en un value object.**
+
+### Ejemplo de aggregates de un eCommerce
+
+Como ejemplo, considere un dominio de comercio electrónico que tiene conceptos para **Orders (Order)**, que tienen
+múltiples **items de order (OrderItem)**, cada uno de los cuales se refiere a una cierta cantidad de **productos
+(Producto)** que se compran. Agregar y eliminar items de un Order debe estar controlado por el Order - partes de la
+aplicación no deberían poder llegar y crear un **OrderItem** individual como parte de un **Order** sin pasar por el
+**Order.** Eliminar un Order debería eliminar todos los items asociados con él. Por lo tanto, el **Order tiene
+sentido como raíz agregada** para el grupo Order - OrderItem.
+
+![order-aggregate](./assets/order-aggregate.png)
+
+En el ejemplo anterior, el agregado de Order se compone de varias entidades. Sin embargo, el acceso a la entidad
+OrderItem lo gestiona el agregado Order, que es el **aggregate root.**
+
+**¿Qué pasa con el producto?** Cada **OrderItem** representa (entre otras cosas) una cantidad de un producto.
+**¿Tiene sentido que OrderItem tenga una propiedad de navegación para Producto?** Si es así, eso complicaría el agregado
+de Order, ya que idealmente debería poder atravesar todas sus propiedades de navegación cuando persista.
+A modo de prueba, **¿tiene sentido eliminar el "Producto A" si se elimina un Order de ese producto?** No, si bien este
+order puede no incluir el "Producto A", otro order puede incluirlo. Por lo tanto, **el Producto no pertenece al agregado
+del Order. Es probable que el Producto deba ser su propia raíz agregada**, en cuyo caso la recuperación de instancias
+del producto se puede realizar mediante un Repositorio. **Todo lo que se requiere para hacerlo es su ID.** En
+consecuencia, si **OrderItem solo hace referencia a Producto por Id**, es suficiente.
+
+![product-aggregate](./assets/product-aggregate.png)
+
+En el ejemplo anterior, `el agregado Producto no tiene ninguna otra entidad. Este es un ejemplo de un agregado de una
+sola entidad.`
+
+## Relaciones entre agregados (aggregates)
+
+Hasta este punto tenemos 5 entidades de las cuales solo nos interesan 4, la entidad **User** solo lo usamos para ver a
+modo general como trabaja Spring Data Jdbc, por lo tanto, centrémonos en las
+entidades: `Owner, Address, Task y Comment`.
+
+Hasta este punto **tenemos dos agregados**, cada uno con su **agregado raíz** y lo que queremos hacer ahora es
+establecer la relación de **One-to-Many** entre los **agregados raíz de cada agregado**, tal como se ve en la imagen
+siguiente:
+
+![agregados-trabajados](./assets/agregados-trabajados.png)
+
+Entonces, como queremos establecer la relación de `One-to-Many` entre las tablas `owners y tasks`, debemos ir al esquema
+de la base de datos y modificar la tabla **tasks** para que contenga la **foreign key** `owner_id` que hace referencia
+a la **primary key (id)** de la tabla **owners**:
+
+````sql
+-- Relación One-to-Many: owners y tasks
+CREATE TABLE tasks(
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(100) NOT NULL,
+    content TEXT NOT NULL,
+    published_on DATETIME NOT NULL,
+    updated_on DATETIME,
+    owner_id INT,
+    CONSTRAINT fk_owners_tasks FOREIGN KEY (owner_id) REFERENCES owners(id)
+);
+````
+
+Con la modificación anterior, también debemos modificar los datos del archivo `data.sql` agregando el nuevo campo
+**owner_id**:
+
+````sql
+-- Relación One-to-Many: owners y tasks
+INSERT INTO tasks(id, title, content, published_on, updated_on, owner_id) VALUES(10, 'Proyecto envío email', 'Este proyecto enviará emails', now(), now(), 20);
+INSERT INTO tasks(id, title, content, published_on, updated_on, owner_id) VALUES(20, 'Renovación jardinería', 'Este proyecto renovará el jardín', now(), now(), 10);
+INSERT INTO tasks(id, title, content, published_on, updated_on, owner_id) VALUES(30, 'Pintado fachada', 'Trabajamos para remodelar fachada', now(), now(), 10);
+INSERT INTO tasks(id, title, content, published_on, updated_on, owner_id) VALUES(40, 'Compra mercado', 'Compras del mes', now(), now(), 10);
+````
+
+Ahora vamos a la clase de entidad **Task** donde crearemos una referencia agregada de tipo **Owner**:
+
+````java
+
+@Data
+@Builder
+@Table(name = "tasks")
+public class Task {
+    /* other properties */
+    @MappedCollection(idColumn = "task_id")
+    private Set<Comment> comments = new HashSet<>();
+
+    @Column(value = "owner_id")
+    private AggregateReference<Owner, Integer> owner;
+    /* other code */
+}
+````
+
+Observamos en el código anterior que estamos usando la interfaz `AggregateReference`, **esta interfaz nos permite
+agregar una referencia a la raíz agregada de un agregado diferente.** En otras palabras, al **aggregate root Task**
+estamos agregando la referencia del otro **aggregate root Owner**. Nótese además, que estamos usando la anotación
+`@Column(value = "owner_id")` sobre la interfaz `AggregateReference` esto es porque necesitamos decirle a Spring
+Data Jdbc que en la tabla `tasks` de la base de datos está la **foreign key** llamada `owner_id`.
+
+### Probando la aplicación
+
+Vemos hasta este punto el comportamiento de la aplicación llamando a los endpoints del **OwnerController** quien trabaja
+con la entidad **Owner** como un `aggregate root`:
+
+````bash
+curl -v http://localhost:8080/api/v1/owners | jq
+
+--- Respuesta
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+[
+  {
+    "id": 10,
+    "fullName": "Martín Díaz",
+    "email": "martin@gmail.com",
+    "username": "martin",
+    "address": {
+      "id": 1,
+      "addressLine": "Av. José Olaya, Chimbote"
+    }
+  },
+  {
+    "id": 20,
+    "fullName": "Karen Caldas",
+    "email": "karen@gmail.com",
+    "username": "karen",
+    "address": {
+      "id": 2,
+      "addressLine": "Pichari, La Convención, Cuzco"
+    }
+  }
+]
+````
+
+Resultado en consola:
+
+````roomsql
+SELECT `owners`.`id` AS `id`, `owners`.`email` AS `email`, `owners`.`full_name` AS `full_name`, `owners`.`username` AS `username`, 
+        `address`.`id` AS `address_id`, `address`.`address_line` AS `address_address_line` 
+FROM `owners` 
+    LEFT OUTER JOIN `addresses` `address` ON `address`.`owner_id` = `owners`.`id`
+````
+
+**Como vemos en el resultado, no hay cambios, es decir los resultados son iguales a lo que obtuvimos en secciones
+anteriores, no vemos que los cambios que hicimos en el código hayan afectado el resultado.**
+
+Ahora, hagamos lo mismo llamando a los endpoints del **TaskController** quien trabaja con la entidad **Task** como
+un `aggregate root`:
+
+````bash
+curl -v http://localhost:8080/api/v1/tasks | jq
+
+--- Resultado
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+[
+  {
+    "id": 10,
+    "title": "Proyecto envío email",
+    "content": "Este proyecto enviará emails",
+    "publishedOn": "2023-08-24T22:41:44",
+    "updatedOn": "2023-08-24T22:41:44",
+    "comments": [
+      {
+        "id": 1,
+        "name": "Desarrollador Senior",
+        "content": "Me uno al proyecto",
+        "publishedOn": "2023-08-24T22:41:44",
+        "updatedOn": "2023-08-24T22:41:44"
+      },
+      {
+        "id": 2,
+        "name": "Desarrollador Junior",
+        "content": "Quiero participar",
+        "publishedOn": "2023-08-24T22:41:44",
+        "updatedOn": "2023-08-24T22:41:44"
+      }
+    ],
+    "owner": {
+      "id": 20
+    }
+  },
+  {...}
+]
+````
+
+Resultados en consola:
+
+````roomsql
+SELECT `tasks`.`id` AS `id`, `tasks`.`owner_id` AS `owner_id`, `tasks`.`title` AS `title`, `tasks`.`content` AS `content`, `tasks`.`updated_on` AS `updated_on`, `tasks`.`published_on` AS `published_on` 
+FROM `tasks`
+````
+
+````roomsql
+SELECT `comments`.`id` AS `id`, `comments`.`name` AS `name`, `comments`.`content` AS `content`, `comments`.`updated_on` AS `updated_on`, `comments`.`published_on` AS `published_on` 
+FROM `comments` 
+WHERE `comments`.`task_id` = ?
+--Setting SQL statement parameter value: column index 1, parameter value [10], value class [java.lang.Integer], SQL type 4
+
+-- Otras consultas similares a la anterior se omitieron para no hacerlo repetitivo.
+````
+
+En el resultado anterior, al consultar por el endpoint de **tasks** vemos que a la respuesta que inicialmente teníamos
+como información del **task** y de los **comments** ahora se le suma el `owner con su id`, esto es porque
+agregamos `AggregateReference<Owner, Integer> owner` a la clase **Task**.
+
+El resultado anterior puede ser suficiente en algunos casos, pero generalmente queremos más información sobre el
+**Owner** o los **Task**, para remediar ese caso podemos crear **DTOs** usando los **record** de java.
+
+### Agregando Información del Owner en Task (One to One)
+
+Iniciemos desde el **aggregate root Task**, como vimos, el resultado nos arroja información del **task**, de los
+**comments** y a eso se le suma ahora el **owner id**, pero no solo queremos ver el **owner id**, sino información
+detallada del **Owner**, para eso es necesario ver cómo tenemos actualmente nuestra base de datos.
+
+![base-de-datos-agregados](./assets/base-de-datos-agregados.png)
+
+Si nos fijamos en la relación de **One-to-Many** entre **owners** y **tasks** (lo que en las clases java serían los
+aggregates root Owner y Task), veremos que `un owner tiene muchos tasks y muchos tasks le pertenecen a un owner`. Ahora
+si analizamos la siguiente situación, del conjunto de tasks que le pertenecen a un owner, seleccionamos uno de ellos,
+veremos que ese task le sigue perteneciendo al mismo owner.
+
+Ahora, si nos vamos a nivel de clases java, cuando consultemos el `aggregate root Task` lo que haremos será mostrar la
+información que nos retorna task **(task + comments + owner id)** pero ahora le agregaremos información
+del owner al que pertenece ese task y eso es usando un record al que le llamaremos `TaskDetails`:
+
+````java
+public record TaskDetails(Task task, Owner owner) { // Task 1 ---- 1 Owner
+}
+````
+
+Nos vamos al controller **TaskController** (en este punto no necesitamos hacer cambios en el repositorio ni
+el servicio de Task, al menos no para hacer la consulta desde los endpoints de **TaskController**) y agregamos un
+endpoint para ver un **Task** en específico incluyendo sus detalles adicionales como el tener los detalles del
+**Owner** al que pertenece:
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/tasks")
+public class TaskController {
+
+    private final TaskService taskService;
+    private final OwnerService ownerService;
+
+    /* omitted code */
+
+    @GetMapping(path = "/{id}/details")
+    public ResponseEntity<TaskDetails> getTaskDetails(@PathVariable Integer id) {
+        return this.taskService.getTask(id) // (1)
+                .map(taskDB -> this.ownerService.getOwner(taskDB.getOwner().getId()) // (2)
+                        .map(ownerDB -> ResponseEntity.ok(new TaskDetails(taskDB, ownerDB))) // (3)
+                        .orElseGet(() -> ResponseEntity.notFound().build())
+                )
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+}
+````
+
+En el código anterior, lo que hacemos es **(1)** obtener un task específico de la base de datos, luego a partir
+de ese task, para ser más precisos a partir del **(2)** `owner id` obtener información de su Owner para finalmente
+retornar el **record TaskDetails** incluyendo el Task y su Owner encontrado.
+
+````bash
+curl -v http://localhost:8080/api/v1/tasks/10/details | jq
+
+--- Respuesta
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "task": {
+    "id": 10,
+    "title": "Proyecto envío email",
+    "content": "Este proyecto enviará emails",
+    "publishedOn": "2023-08-25T11:45:22",
+    "updatedOn": "2023-08-25T11:45:22",
+    "comments": [
+      {
+        "id": 1,
+        "name": "Desarrollador Senior",
+        "content": "Me uno al proyecto",
+        "publishedOn": "2023-08-25T11:45:22",
+        "updatedOn": "2023-08-25T11:45:22"
+      },
+      {
+        "id": 2,
+        "name": "Desarrollador Junior",
+        "content": "Quiero participar",
+        "publishedOn": "2023-08-25T11:45:22",
+        "updatedOn": "2023-08-25T11:45:22"
+      }
+    ],
+    "owner": {
+      "id": 20
+    }
+  },
+  "owner": {
+    "id": 20,
+    "fullName": "Karen Caldas",
+    "email": "karen@gmail.com",
+    "username": "karen",
+    "address": {
+      "id": 2,
+      "addressLine": "Pichari, La Convención, Cuzco"
+    }
+  }
+}
+````
+
+Consulta SQL obtenido en consola:
+
+````roomsql
+SELECT `tasks`.`id` AS `id`, `tasks`.`owner_id` AS `owner_id`, `tasks`.`title` AS `title`, `tasks`.`content` AS `content`, `tasks`.`updated_on` AS `updated_on`, `tasks`.`published_on` AS `published_on` 
+FROM `tasks` 
+WHERE `tasks`.`id` = ?
+--parameter value [10], value class [java.lang.Integer], SQL type 4
+````
+
+````roomsql
+SELECT `comments`.`id` AS `id`, `comments`.`name` AS `name`, `comments`.`content` AS `content`, `comments`.`updated_on` AS `updated_on`, `comments`.`published_on` AS `published_on` 
+FROM `comments` 
+WHERE `comments`.`task_id` = ?
+--parameter value [10], value class [java.lang.Integer], SQL type 4
+````
+
+````roomsql
+SELECT `owners`.`id` AS `id`, `owners`.`email` AS `email`, `owners`.`full_name` AS `full_name`, `owners`.`username` AS `username`, 
+    `address`.`id` AS `address_id`, `address`.`address_line` AS `address_address_line` 
+FROM `owners` 
+    LEFT OUTER JOIN `addresses` `address` ON `address`.`owner_id` = `owners`.`id` 
+WHERE `owners`.`id` = ?
+--parameter value [20], value class [java.lang.Integer], SQL type 4
+````
+
+### Agregando Información al Owner de sus Tasks (One-to-Many)
+
+Ahora, enfoquémonos en el **aggregate root Owner**, recordemos que el resultado que nos arrojaba al consultar por el
+endpoint de **OwnerController** era información del **Owner** y su **Address** nada más. Entonces, lo que haremos ahora
+será consultar por un **Owner** y que nos retorne (además de su información y su address) información sobre la lista
+de tasks que tiene.
+
+Recordemos nuevamente la base de datos donde `Un Owner tiene Muchos Tasks`:
+
+![base-de-datos-agregados](./assets/base-de-datos-agregados.png)
+
+Por lo tanto, cuando consultemos por un Owner en específico, consultaremos luego por la lista de tasks que tiene
+ese owner y los colocaremos en un **DTO record de java**, dando por cumplido la relación de **uno a muchos**:
+
+````java
+public record OwnerDetails(Owner owner, List<Task> tasks) { //Owner 1 ---- * Task
+}
+````
+
+Ahora sí se hace necesario agregar un método personalizado en la interfaz **ITaskRepository**, ya que necesitamos
+obtener los Task que le pertenecen aun Owner en específico:
+
+````java
+public interface ITaskRepository extends ListCrudRepository<Task, Integer> {
+    List<Task> findAllByOwner(Integer id);
+}
+````
+
+También modificamos la clase de servicio para implementar el método anterior:
+
+````java
+
+@RequiredArgsConstructor
+@Service
+public class TaskService {
+    /* omitted code */
+
+    @Transactional(readOnly = true)
+    public List<Task> findAllByOwner(Integer id) {
+        return this.taskRepository.findAllByOwner(id);
+    }
+}
+````
+
+Finalmente, modificamos el controlador **OwnerController** para implementar el endpoint por donde realizaremos la
+consulta del owner y sus detalles (tasks):
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/owners")
+public class OwnerController {
+
+    private final OwnerService ownerService;
+    private final TaskService taskService;
+
+    /* omitted code */
+
+    @GetMapping(path = "/{id}/details")
+    public ResponseEntity<OwnerDetails> getOwnerDetails(@PathVariable Integer id) {
+        return this.ownerService.getOwner(id) // (1)
+                .map(ownerDB -> {
+                    List<Task> tasks = this.taskService.findAllByOwner(id); // (2)
+                    return ResponseEntity.ok(new OwnerDetails(ownerDB, tasks)); // (3)
+                })
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+}
+````
+
+El código anterior **(1)** consulta a la base de datos para obtener un Owner en específico, luego a partir del id del
+Owner **(2)** consultamos por los tasks que tiene en la base de datos, finalmente **(3)** retornamos el **record**
+conteniendo el **Owner** solicitado junto a su lista de **Task".
+
+````bash
+curl -v http://localhost:8080/api/v1/owners/20/details | jq
+
+--- Respuesta
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "owner": {
+    "id": 20,
+    "fullName": "Karen Caldas",
+    "email": "karen@gmail.com",
+    "username": "karen",
+    "address": {
+      "id": 2,
+      "addressLine": "Pichari, La Convención, Cuzco"
+    }
+  },
+  "tasks": [
+    {
+      "id": 10,
+      "title": "Proyecto envío email",
+      "content": "Este proyecto enviará emails",
+      "publishedOn": "2023-08-25T12:17:46",
+      "updatedOn": "2023-08-25T12:17:46",
+      "comments": [
+        {
+          "id": 1,
+          "name": "Desarrollador Senior",
+          "content": "Me uno al proyecto",
+          "publishedOn": "2023-08-25T12:17:46",
+          "updatedOn": "2023-08-25T12:17:46"
+        },
+        {
+          "id": 2,
+          "name": "Desarrollador Junior",
+          "content": "Quiero participar",
+          "publishedOn": "2023-08-25T12:17:46",
+          "updatedOn": "2023-08-25T12:17:46"
+        }
+      ],
+      "owner": {
+        "id": 20
+      }
+    }
+  ]
+}
+````
+
+````roomsql
+SELECT `owners`.`id` AS `id`, `owners`.`email` AS `email`, `owners`.`full_name` AS `full_name`, `owners`.`username` AS `username`, 
+        `address`.`id` AS `address_id`, `address`.`address_line` AS `address_address_line` 
+FROM `owners` 
+    LEFT OUTER JOIN `addresses` `address` ON `address`.`owner_id` = `owners`.`id` 
+WHERE `owners`.`id` = ?
+--parameter value [20], value class [java.lang.Integer], SQL type 4
+````
+
+````roomsql
+SELECT `tasks`.`id` AS `id`, `tasks`.`owner_id` AS `owner_id`, `tasks`.`title` AS `title`, `tasks`.`content` AS `content`, `tasks`.`updated_on` AS `updated_on`, `tasks`.`published_on` AS `published_on` FROM 
+`tasks` 
+WHERE `tasks`.`owner_id` = ?
+--parameter value [20], value class [java.lang.Integer], SQL type 4
+````
+
+````roomsql
+SELECT `comments`.`id` AS `id`, `comments`.`name` AS `name`, `comments`.`content` AS `content`, `comments`.`updated_on` AS `updated_on`, `comments`.`published_on` AS `published_on` 
+FROM `comments` 
+WHERE `comments`.`task_id` = ?
+--parameter value [10], value class [java.lang.Integer], SQL type 4
+````

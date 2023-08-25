@@ -3,6 +3,8 @@ package com.magadiflo.spring.data.jdbc.app.entities;
 import lombok.Builder;
 import lombok.Data;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.jdbc.core.mapping.AggregateReference;
+import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.MappedCollection;
 import org.springframework.data.relational.core.mapping.Table;
 
@@ -23,6 +25,9 @@ public class Task {
 
     @MappedCollection(idColumn = "task_id")
     private Set<Comment> comments = new HashSet<>();
+
+    @Column(value = "owner_id")
+    private AggregateReference<Owner, Integer> owner;
 
     public void addComment(Comment comment) {
         this.comments.add(comment);

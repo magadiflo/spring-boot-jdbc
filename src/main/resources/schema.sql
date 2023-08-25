@@ -14,10 +14,13 @@ CREATE TABLE users(
     birthdate DATE
 );
 
--- Para la relación One-to-One: owners y addresses
+-- Orden de eliminación de tablas
+DROP TABLE IF EXISTS comments;
+DROP TABLE IF EXISTS tasks;
 DROP TABLE IF EXISTS addresses;
 DROP TABLE IF EXISTS owners;
 
+-- Para la relación One-to-One: owners y addresses
 CREATE TABLE owners(
     id INT AUTO_INCREMENT PRIMARY KEY,
     full_name VARCHAR(100) NOT NULL,
@@ -34,15 +37,15 @@ CREATE TABLE addresses(
 );
 
 -- Para la relación One-to-Many: tasks y comments
-DROP TABLE IF EXISTS comments;
-DROP TABLE IF EXISTS tasks;
-
+-- Relación One-to-Many: owners y tasks
 CREATE TABLE tasks(
     id INT AUTO_INCREMENT PRIMARY KEY,
     title VARCHAR(100) NOT NULL,
     content TEXT NOT NULL,
     published_on DATETIME NOT NULL,
-    updated_on DATETIME
+    updated_on DATETIME,
+    owner_id INT,
+    CONSTRAINT fk_owners_tasks FOREIGN KEY (owner_id) REFERENCES owners(id)
 );
 
 CREATE TABLE comments(

@@ -23,4 +23,9 @@ public class TaskService {
     public Optional<Task> getTask(Integer id) {
         return this.taskRepository.findById(id);
     }
+
+    @Transactional(readOnly = true)
+    public List<Task> findAllByOwner(Integer id) {
+        return this.taskRepository.findAllByOwner(id);
+    }
 }
