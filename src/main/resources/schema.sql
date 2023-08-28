@@ -1,3 +1,5 @@
+DROP TABLE IF EXISTS users_authorities;
+DROP TABLE IF EXISTS authorities;
 DROP TABLE IF EXISTS users;
 
 CREATE TABLE users(
@@ -12,6 +14,19 @@ CREATE TABLE users(
     last_name VARCHAR(50),
     email_address VARCHAR(100),
     birthdate DATE
+);
+
+CREATE TABLE authorities(
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    authority VARCHAR(50)
+);
+
+CREATE TABLE users_authorities(
+    user_id INT NOT NULL,
+    authority_id INT NOT NULL,
+    CONSTRAINT pk_users_authorities PRIMARY KEY (user_id, authority_id),
+    CONSTRAINT fk_users__users_authorities FOREIGN KEY (user_id) REFERENCES users(id),
+    CONSTRAINT fk_authorities__users_authorities FOREIGN KEY (authority_id) REFERENCES authorities(id)
 );
 
 -- Orden de eliminación de tablas

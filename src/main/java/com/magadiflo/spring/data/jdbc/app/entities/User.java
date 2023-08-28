@@ -1,12 +1,16 @@
 package com.magadiflo.spring.data.jdbc.app.entities;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Builder;
 import lombok.Data;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Column;
+import org.springframework.data.relational.core.mapping.MappedCollection;
 import org.springframework.data.relational.core.mapping.Table;
 
 import java.time.LocalDate;
+import java.util.HashSet;
+import java.util.Set;
 
 @Data
 @Builder
@@ -25,4 +29,8 @@ public class User {
     private String lastName;
     private String emailAddress;
     private LocalDate birthdate;
+
+    @JsonIgnore
+    @MappedCollection(idColumn = "user_id")
+    private Set<AuthorityRef> authorities = new HashSet<>();
 }

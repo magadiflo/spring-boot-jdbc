@@ -1,6 +1,15 @@
-INSERT INTO users(username, password, account_non_expired, account_non_locked, credentials_non_expired, enabled, first_name, last_name, email_address, birthdate) VALUES('admin', '123456', true, true, true, true, 'Martín', 'Díaz', 'martin@gmail.com', '2000-01-15');
-INSERT INTO users(username, password, account_non_expired, account_non_locked, credentials_non_expired, enabled, first_name, last_name, email_address, birthdate) VALUES('user', '123456', true, true, true, true, 'Clara', 'Díaz', 'clara@gmail.com', '1998-07-28');
-INSERT INTO users(username, password, account_non_expired, account_non_locked, credentials_non_expired, enabled, first_name, last_name, email_address, birthdate) VALUES('karen', '123456', true, true, true, true, 'Karen', 'Díaz', 'karen@gmail.com', '2000-06-03');
+INSERT INTO users(id, username, password, account_non_expired, account_non_locked, credentials_non_expired, enabled, first_name, last_name, email_address, birthdate) VALUES(2, 'admin', '123456', true, true, true, true, 'Martín', 'Díaz', 'martin@gmail.com', '2000-01-15');
+INSERT INTO users(id, username, password, account_non_expired, account_non_locked, credentials_non_expired, enabled, first_name, last_name, email_address, birthdate) VALUES(4, 'user', '123456', true, true, true, true, 'Clara', 'Díaz', 'clara@gmail.com', '1998-07-28');
+INSERT INTO users(id, username, password, account_non_expired, account_non_locked, credentials_non_expired, enabled, first_name, last_name, email_address, birthdate) VALUES(6, 'karen', '123456', true, true, true, true, 'Karen', 'Díaz', 'karen@gmail.com', '2000-06-03');
+INSERT INTO authorities(id, authority) VALUES(3, 'ROLE_USER');
+INSERT INTO authorities(id, authority) VALUES(5, 'ROLE_ADMIN');
+INSERT INTO authorities(id, authority) VALUES(7, 'ROLE_DEVELOPER');
+INSERT INTO users_authorities(user_id, authority_id) VALUES(2, 3);
+INSERT INTO users_authorities(user_id, authority_id) VALUES(2, 5);
+INSERT INTO users_authorities(user_id, authority_id) VALUES(2, 7);
+INSERT INTO users_authorities(user_id, authority_id) VALUES(4, 3);
+INSERT INTO users_authorities(user_id, authority_id) VALUES(4, 5);
+INSERT INTO users_authorities(user_id, authority_id) VALUES(6, 7);
 
 -- Para la relación One-to-One: owners y addresses
 INSERT INTO owners(id, full_name, email, username) VALUES(10, 'Martín Díaz', 'martin@gmail.com', 'martin');

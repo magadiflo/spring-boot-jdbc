@@ -1012,9 +1012,9 @@ sola entidad.`
 
 ## Relaciones entre agregados (aggregates)
 
-Hasta este punto tenemos 5 entidades de las cuales solo nos interesan 4, la entidad **User** solo lo usamos para ver a
-modo general como trabaja Spring Data Jdbc, por lo tanto, centrémonos en las
-entidades: `Owner, Address, Task y Comment`.
+Hasta este punto tenemos 5 entidades de las cuales, para este apartado nos interesan 4, la entidad **User** que
+trabajamos inicialmente lo veremos más adelante, por lo tanto, centrémonos en las entidades:
+`Owner, Address, Task y Comment`.
 
 Hasta este punto **tenemos dos agregados**, cada uno con su **agregado raíz** y lo que queremos hacer ahora es
 establecer la relación de **One-to-Many** entre los **agregados raíz de cada agregado**, tal como se ve en la imagen
@@ -1462,4 +1462,621 @@ SELECT `comments`.`id` AS `id`, `comments`.`name` AS `name`, `comments`.`content
 FROM `comments` 
 WHERE `comments`.`task_id` = ?
 --parameter value [10], value class [java.lang.Integer], SQL type 4
+````
+
+## Relación entre agregados (Many-to-Many)
+
+Recordemos que al inicio trabajamos con la entity **User** a nivel de clase java y **users** como tabla de base de datos
+para ver aspectos generales de Spring Data Jdbc. En este apartado tocaremos nuevamente dicha entidad y su relación con
+la entidad **Authority** que crearemos más adelante.
+
+Veamos ahora las tablas de base de datos con las que trabajaremos en este apartado. **Un usuario puede tener muchos
+authorities y a un authority pueden estar asignados muchos usuarios**, claramente nos encontramos en una relación de
+`Many-to-Many` a nivel de base de datos y ante esa relación lo que se hace es crear una tabla intermedia que contenga
+los identificadores de las otras tablas.
+
+![users-authorities-db](./assets/users-authorities-db.png)
+
+Ya teniendo nuestro diagrama sobre el que trabajaremos, lo que sigue es modificar el esquema de la base de datos
+agregando las nuevas tablas para relacionarlas con **users**:
+
+````sql
+DROP TABLE IF EXISTS users_authorities;
+DROP TABLE IF EXISTS authorities;
+DROP TABLE IF EXISTS users;
+
+CREATE TABLE users(
+  /**
+   * tabla ya creada desde el inicio 
+  */
+);
+
+CREATE TABLE authorities(
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    authority VARCHAR(50)
+);
+
+CREATE TABLE users_authorities(
+    user_id INT NOT NULL,
+    authority_id INT NOT NULL,
+    CONSTRAINT pk_users_authorities PRIMARY KEY (user_id, authority_id),
+    CONSTRAINT fk_users__users_authorities FOREIGN KEY (user_id) REFERENCES users(id),
+    CONSTRAINT fk_authorities__users_authorities FOREIGN KEY (authority_id) REFERENCES authorities(id)
+);
+````
+
+En nuestro script **data.sql** agregamos datos en las nuevas tablas creadas. Es necesario definir
+explícitamente el identificador de los **users** y los **authorities** para poder usarlos en la tabla intermedia:
+
+````sql
+INSERT INTO users(id, username, password, account_non_expired, account_non_locked, credentials_non_expired, enabled, first_name, last_name, email_address, birthdate) VALUES(2, 'admin', '123456', true, true, true, true, 'Martín', 'Díaz', 'martin@gmail.com', '2000-01-15');
+INSERT INTO users(id, username, password, account_non_expired, account_non_locked, credentials_non_expired, enabled, first_name, last_name, email_address, birthdate) VALUES(4, 'user', '123456', true, true, true, true, 'Clara', 'Díaz', 'clara@gmail.com', '1998-07-28');
+INSERT INTO users(id, username, password, account_non_expired, account_non_locked, credentials_non_expired, enabled, first_name, last_name, email_address, birthdate) VALUES(6, 'karen', '123456', true, true, true, true, 'Karen', 'Díaz', 'karen@gmail.com', '2000-06-03');
+INSERT INTO authorities(id, authority) VALUES(3, 'ROLE_USER');
+INSERT INTO authorities(id, authority) VALUES(5, 'ROLE_ADMIN');
+INSERT INTO authorities(id, authority) VALUES(7, 'ROLE_DEVELOPER');
+INSERT INTO users_authorities(user_id, authority_id) VALUES(2, 3);
+INSERT INTO users_authorities(user_id, authority_id) VALUES(2, 5);
+INSERT INTO users_authorities(user_id, authority_id) VALUES(2, 7);
+INSERT INTO users_authorities(user_id, authority_id) VALUES(4, 3);
+INSERT INTO users_authorities(user_id, authority_id) VALUES(4, 5);
+INSERT INTO users_authorities(user_id, authority_id) VALUES(6, 7);
+````
+
+### [Mapeando entidades](https://javabydeveloper.com/spring-data-jdbc-many-to-many-example/#google_vignette)
+
+En **Spring Data JDBC, para crear entidades, la clase debe seguir el diseño agregado de Domain Driven Design (DDD)**.
+`Una entidad solo puede formar parte de un agregado`, es decir una entidad no puede ser parte de varios agregados
+diferentes al mismo tiempo.
+
+**Spring Data JDBC no admite relaciones de muchos a muchos entre entidades (clases java)**, porque en la relación de
+muchos a muchos **se necesitarían dos raíces de agregados (aggregate roots)** en la asignación de entidades, lo cual
+**no es compatible con el enfoque de un solo agregado por entidad** en Spring Data JDBC.
+
+Para complementar la idea anterior con ejemplos, hemos venido trabajando hasta este punto con los siguientes agregados:
+
+- **Primer Agregado:** Owner(aggregate root) y Address - **Relación de One-to-One**
+- **Segundo Agregado:** Task(aggregate root) y Comment - **Relación de One-to-Many**
+
+Ahora, **"supongamos"** que las nuevas entidades que trabajaremos también formen un agregado, entonces sería:
+
+- **Tercer Agregado:** User(aggregate root), Authority(aggregate root), UserAuthority (tabla intermedia) - **Relación de
+  Many-to-Many**
+
+**Los dos primeros agregados son correctos**, pero **el tercer agregado que supusimos es totalmente incorrecto** y eso
+es porque en una relación de `Many-to-Many` cada entidad de la relación es un **aggregate root**, por lo tanto, en
+nuestro caso tenemos dos **aggregate roots: User y Authority**, adicionalmente tenemos una entidad **UserAuthority**
+que mapea la tabla intermedia de la base de datos **users_authorities**, entonces en este **"supuesto" tercer agregado**
+tendríamos tres entidades, de las cuales la entidad **UserAuthority** se convertiría en una especie de entidad de unión
+que **necesitaría dos raíces de agregados: uno relacionado con User y la otra con Authority**. Sin embargo, el enfoque
+que se toma en Spring Data Jdbc es que cada agregado debe tener un único **aggregate root** y eso no se estaría
+cumpliendo con este tipo de relación.
+
+Pero **podemos lograr el mapeo de entidades de muchos a muchos utilizando referencias de identificación.** Veamos
+como lograr eso, pero antes recordemos cómo tenemos nuestras tablas en la base de datos:
+
+![users_authorities-mysql](./assets/users_authorities-mysql.png)
+
+La primera decisión que debemos tomar es **¿dónde agregar una relación?**, si va a ser un `Authority que conoce
+la lista de Users` o el `User conoce la lista de Authorities`.
+
+En mi caso `tiene más sentido agregar una colección de Authorities en la entidad User`, para eso necesitamos crear
+una nueva clase que modele la referencia a los authorities, esta clase se llamará `AuthorityRef` y `representará la
+tabla intermedia en la base de datos.`
+
+Esta clase `AuthorityRef` tendrá solo un campo y será `authorityId (authority_id en la tabla de la BD)`, lo que
+significa que es una identificación de Authority al que hace referencia el User.
+
+Ahora sí, comencemos creando la entidad **Authority** que solo tendrá los atributos correspondientes a la tabla
+**authorities** de la base de datos:
+
+````java
+
+@Data
+@Builder
+@Table(name = "authorities")
+public class Authority {
+    @Id
+    private Integer id;
+    private String authority;
+}
+````
+
+La entidad **AuthorityRef** es solo para contener identificadores de entidad de **Authority**:
+
+````java
+
+@Data
+@Builder
+@Table(name = "users_authorities")
+public class AuthorityRef {
+    @Column(value = "authority_id")
+    private Integer authorityId;
+}
+````
+
+Finalmente, creamos la entidad **User** quien tendrá la colección de los **AuthorityRef**. Esta clase **AuthorityRef**
+está mapeada a la tabla intermedia **users_authorities**. Además, en la clase definimos solo el atributo del
+identificador del **Authority** a través del atributo **authority_id**, mientras que
+el atributo **user_id** es usado como una especie de **FK** que permite referenciar a la entidad **User**.
+
+Para comprender mejor lo anterior, muestro la imagen que hice a mano:
+
+![many-to-many-ref](./assets/many-to-many-ref.png)
+
+Como no podemos mapear directamente una relación de muchos a muchos en Spring Data Jdbc es que nos recomiendan
+realizar la estrategia de la tabla de referencia **AuthorityRef**. Ahora, según cómo yo lo veo, y es el origen del
+diagrama anterior, es que **"debemos imaginarnos una relación One-to-Many entre la entidad User (quien será nuestra
+clase principal o padre) y la entidad AuthorityRef quien tendrá la 'Foreing Key' de User, es decir tendrá el user_id,
+además del campo authority_id"**, entonces cuando creamos la relación entre **User** y **AuthorityRef**, será tal como
+lo hicimos en apartados superiores con la relación **One-to-Many**. La entidad padre **User** tendrá la colección
+de la entidad hija **AuthorityRef** y a esa colección lo anotamos con **@MappedCollection(idColumn = "user_id")**
+indicándole el **user_id**, es decir la **Fk** en la tabla **AuthorityRef** que hace referencia a **User**:
+
+````java
+
+@Data
+@Builder
+@Table(name = "users")
+public class User {
+    @Id
+    private Integer id;
+    private String username;
+    private String password;
+
+    // Con el @Column podemos definirle un nombre al que se asociará este atributo de la clase con un atributo de la BD, 
+    // aunque por defecto si el atributo de la clase está en camelCase se asociará en la DB a uno con guiones bajos.
+    @Column(value = "account_non_expired")
+    private Boolean accountNonExpired;
+
+    private Boolean accountNonLocked;
+    private Boolean credentialsNonExpired;
+    private Boolean enabled;
+    private String firstName;
+    private String lastName;
+    private String emailAddress;
+    private LocalDate birthdate;
+
+    @MappedCollection(idColumn = "user_id")
+    private Set<AuthorityRef> authorities = new HashSet<>();
+}
+````
+
+Como siguiente paso creamos la interfaz para la entidad **Authority** donde definimos un método personalizado con la
+anotación `@Query`, ese método busca todos los **authorities** que pertenecen a un usuario:
+
+````java
+public interface IAuthorityRepository extends ListCrudRepository<Authority, Integer> {
+    @Query(value = """
+            SELECT a.*
+            FROM authorities AS a
+                JOIN users_authorities AS ua ON(a.id = ua.authority_id)
+            WHERE ua.user_id = :id
+            """)
+    List<Authority> findAllAuthoritiesByUserId(@Param("id") Integer id);
+}
+````
+
+A la interfaz **IUserRepository** le agregamos un método personalizado que nos devolverá todos los **users** que
+tienen asignado un **authority** determinado:
+
+````java
+public interface IUserRepository extends ListCrudRepository<User, Integer>,
+        ListPagingAndSortingRepository<User, Integer> {
+    @Query(value = """
+            SELECT u.*
+            FROM users AS u
+                JOIN users_authorities AS ua ON(u.id = ua.user_id)
+            WHERE ua.authority_id = :id
+            """)
+    List<User> findAllUsersByAuthority(@Param("id") Integer id);
+}
+````
+
+Creamos los DTO's que serán los objetos expuestos por los endpoints, además con esos objetos estableceremos la
+asociación de muchos a muchos, donde:
+
+- Un **user** tiene Muchos **authorities**
+
+  ````java
+  public record UserDetails(User user, List<Authority> authorities) {
+  }
+  ````
+
+- Un **authority** tiene muchos **users**:
+  ````java
+  public record AuthorityDetails(Authority authority, List<User> users) {
+  }
+  ````
+
+Creamos el servicio **AuthorityService** donde definimos un método que nos retornará un **AuthorityDetails**:
+
+````java
+
+@RequiredArgsConstructor
+@Service
+public class AuthorityService {
+
+    private final IAuthorityRepository authorityRepository;
+    private final IUserRepository userRepository;
+
+    public Optional<AuthorityDetails> getAuthorityDetails(Integer id) {
+        return this.authorityRepository.findById(id)
+                .map(authorityDB -> {
+                    List<User> usersDB = this.userRepository.findAllUsersByAuthority(id);
+                    return new AuthorityDetails(authorityDB, usersDB);
+                });
+    }
+}
+````
+
+Anteriormente, ya habíamos creado nuestra clase de servicio **UserService**, lo que haremos será agregarle un método
+que nos retornará un **UserDetails**:
+
+````java
+
+@RequiredArgsConstructor
+@Service
+public class UserService {
+
+    private final IUserRepository userRepository;
+    private final IAuthorityRepository authorityRepository;
+
+    /* list method */
+
+    @Transactional(readOnly = true)
+    public Optional<UserDetails> getUserDetails(Integer id) {
+        return this.userRepository.findById(id)
+                .map(userDB -> {
+                    List<Authority> authoritiesDB = this.authorityRepository.findAllAuthoritiesByUserId(id);
+                    return new UserDetails(userDB, authoritiesDB);
+                });
+    }
+}
+````
+
+Finalmente creamos el controlador **AuthorityController**:
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/authorities")
+public class AuthorityController {
+
+    private final AuthorityService authorityService;
+
+    @GetMapping(path = "/{id}/details")
+    public ResponseEntity<AuthorityDetails> getAuthorityDetails(@PathVariable Integer id) {
+        return this.authorityService.getAuthorityDetails(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+}
+````
+
+Y ahora el controlador **UserController** le agregamos un método adicional:
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/users")
+public class UserController {
+    private final UserService userService;
+
+    /* endpoint list */
+
+    @GetMapping(path = "/{id}/details")
+    public ResponseEntity<UserDetails> getUserDetails(@PathVariable Integer id) {
+        return this.userService.getUserDetails(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+}
+````
+
+Consultamos por los **detalles de un usuario**:
+
+````bash
+curl -v http://localhost:8080/api/v1/users/4/details | jq
+
+--- Respuesta
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "user": {
+    "id": 4,
+    "username": "user",
+    "password": "123456",
+    "accountNonExpired": true,
+    "accountNonLocked": true,
+    "credentialsNonExpired": true,
+    "enabled": true,
+    "firstName": "Clara",
+    "lastName": "Díaz",
+    "emailAddress": "clara@gmail.com",
+    "birthdate": "1998-07-28",
+    "authorities": [
+      {
+        "authorityId": 3
+      },
+      {
+        "authorityId": 5
+      }
+    ]
+  },
+  "authorities": [
+    {
+      "id": 3,
+      "authority": "ROLE_USER"
+    },
+    {
+      "id": 5,
+      "authority": "ROLE_ADMIN"
+    }
+  ]
+}
+````
+
+En el resultado observamos que nos retorna información del usuario y además los authorities que tiene dicho usuario.
+Observemos también que el objeto **user** nos retorna como parte de su información un arreglo de **authorities** que
+presenta solo los identificadores del **Authority** y eso ocurre precisamente porque usamos la estrategia de la
+clase de Referencia para poder trabajar de algún modo la relación de `Many-to-Many`.
+
+Las consultas generadas:
+
+````roomsql
+SELECT `users`.`id` AS `id`, `users`.`enabled` AS `enabled`, `users`.`last_name` AS `last_name`, `users`.`username` AS `username`, `users`.`password` AS `password`, `users`.`birthdate` AS `birthdate`, `users`.`first_name` AS `first_name`, `users`.`email_address` AS `email_address`, `users`.`account_non_locked` AS `account_non_locked`, `users`.`account_non_expired` AS `account_non_expired`, `users`.`credentials_non_expired` AS `credentials_non_expired` 
+FROM `users` 
+WHERE `users`.`id` = ?
+--parameter value [4], value class [java.lang.Integer]
+````
+
+````roomsql
+SELECT `users_authorities`.`authority_id` AS `authority_id` 
+FROM `users_authorities` 
+WHERE `users_authorities`.`user_id` = ?
+--parameter value [4], value class [java.lang.Integer]
+````
+
+````roomsql
+SELECT a.*
+FROM authorities AS a
+    JOIN users_authorities AS ua ON(a.id = ua.authority_id)
+WHERE ua.user_id = ?
+--parameter value [4], value class [java.lang.Integer]
+````
+
+Consultamos por los **detalles de un authority**:
+
+````bash
+curl -v http://localhost:8080/api/v1/authorities/3/details | jq
+
+--- Respuesta
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "authority": {
+    "id": 3,
+    "authority": "ROLE_USER"
+  },
+  "users": [
+    {
+      "id": 2,
+      "username": "admin",
+      "password": "123456",
+      "accountNonExpired": true,
+      "accountNonLocked": true,
+      "credentialsNonExpired": true,
+      "enabled": true,
+      "firstName": "Martín",
+      "lastName": "Díaz",
+      "emailAddress": "martin@gmail.com",
+      "birthdate": "2000-01-15",
+      "authorities": [
+        {
+          "authorityId": 3
+        },
+        {
+          "authorityId": 5
+        },
+        {
+          "authorityId": 7
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "username": "user",
+      "password": "123456",
+      "accountNonExpired": true,
+      "accountNonLocked": true,
+      "credentialsNonExpired": true,
+      "enabled": true,
+      "firstName": "Clara",
+      "lastName": "Díaz",
+      "emailAddress": "clara@gmail.com",
+      "birthdate": "1998-07-28",
+      "authorities": [
+        {
+          "authorityId": 3
+        },
+        {
+          "authorityId": 5
+        }
+      ]
+    }
+  ]
+}
+````
+
+En la consulta anterior vemos todos los usuarios que tiene el `authority con id = 3`. Es preciso notar nuevamente que
+la información de los usuarios viene con un arreglo de authorities conteniendo solo el identificador. Como ya lo
+mencioné anteriormente esto se debe a la estrategia que usamos para poder solventar la relación de muchos a muchos
+utilizando una clase de referencia **AuthorityRef**.
+
+Las consultas generadas:
+
+````roomsql
+SELECT `authorities`.`id` AS `id`, `authorities`.`authority` AS `authority` 
+FROM `authorities` 
+WHERE `authorities`.`id` = ?
+--parameter value [3], value class [java.lang.Integer]
+````
+
+````roomsql
+SELECT u.*
+FROM users AS u
+    JOIN users_authorities AS ua ON(u.id = ua.user_id)
+WHERE ua.authority_id = ?
+--parameter value [3], value class [java.lang.Integer]
+````
+
+````roomsql
+SELECT `users_authorities`.`authority_id` AS `authority_id` 
+FROM `users_authorities` 
+WHERE `users_authorities`.`user_id` = ?
+--parameter value [2], value class [java.lang.Integer]
+````
+
+````roomsql
+SELECT `users_authorities`.`authority_id` AS `authority_id` 
+FROM `users_authorities` 
+WHERE `users_authorities`.`user_id` = ?
+--parameter value [4], value class [java.lang.Integer]
+````
+
+Listo, con eso habríamos finalizado la relación de muchos a muchos usando Spring Data Jdbc. Ahora, podemos evitar de que
+nos mande información de la entidad **AuthorityRef**, ya que no nos sirve de mucho, al menos en la parte de la recepción
+de la información pues solo nos envía el **authorityId** de los authorities, pero sí es muy importante para poder
+emular la relación de muchos a muchos. Entonces, para no mostrar dicha información podemos usar la anotación
+`@JsonIgnore` de esa manera dicha información ya no se serializará.
+
+````java
+
+@Data
+@Builder
+@Table(name = "users")
+public class User {
+    @Id
+    private Integer id;
+    private String username;
+    private String password;
+    @Column(value = "account_non_expired")
+    private Boolean accountNonExpired;
+    private Boolean accountNonLocked;
+    private Boolean credentialsNonExpired;
+    private Boolean enabled;
+    private String firstName;
+    private String lastName;
+    private String emailAddress;
+    private LocalDate birthdate;
+
+    @JsonIgnore //<-- Agregando la anotación que evita que esta propiedad authorities se envíe al endpoint
+    @MappedCollection(idColumn = "user_id")
+    private Set<AuthorityRef> authorities = new HashSet<>();
+}
+````
+
+Consultando por un usuario:
+
+````bash
+curl -v http://localhost:8080/api/v1/users/4/details | jq
+
+--- Respuesta
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "user": {
+    "id": 4,
+    "username": "user",
+    "password": "123456",
+    "accountNonExpired": true,
+    "accountNonLocked": true,
+    "credentialsNonExpired": true,
+    "enabled": true,
+    "firstName": "Clara",
+    "lastName": "Díaz",
+    "emailAddress": "clara@gmail.com",
+    "birthdate": "1998-07-28"
+  },
+  "authorities": [
+    {
+      "id": 3,
+      "authority": "ROLE_USER"
+    },
+    {
+      "id": 5,
+      "authority": "ROLE_ADMIN"
+    }
+  ]
+}
+````
+
+Consultando por un authority:
+
+````bash
+curl -v http://localhost:8080/api/v1/authorities/3/details | jq
+
+--- Respuesta
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "authority": {
+    "id": 3,
+    "authority": "ROLE_USER"
+  },
+  "users": [
+    {
+      "id": 2,
+      "username": "admin",
+      "password": "123456",
+      "accountNonExpired": true,
+      "accountNonLocked": true,
+      "credentialsNonExpired": true,
+      "enabled": true,
+      "firstName": "Martín",
+      "lastName": "Díaz",
+      "emailAddress": "martin@gmail.com",
+      "birthdate": "2000-01-15"
+    },
+    {
+      "id": 4,
+      "username": "user",
+      "password": "123456",
+      "accountNonExpired": true,
+      "accountNonLocked": true,
+      "credentialsNonExpired": true,
+      "enabled": true,
+      "firstName": "Clara",
+      "lastName": "Díaz",
+      "emailAddress": "clara@gmail.com",
+      "birthdate": "1998-07-28"
+    }
+  ]
+}
+````
+
+Listo, ahora sí vemos las respuestas más limpias que antes, pues con la anotación `@JsonIgnore` ignoramos la propiedad
+sobre la que se anota evitando enviarnos información que anteriormente nos envíaba, me refiero a información como la
+que se muestra a continuación:
+
+````bash
+"authorities": [
+      {
+        "authorityId": 3
+      },
+      {
+        "authorityId": 5
+      }
+]
 ````
