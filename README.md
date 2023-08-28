@@ -2461,3 +2461,336 @@ curl -v -X DELETE http://localhost:8080/api/v1/tutorials | jq
 ````roomsql
 DELETE FROM `tutorials`
 ````
+
+## CRUD API Relación One-to-One entre dos tablas de BD
+
+En este apartado trabajaremos sobre las tablas `owners` y `addresses` de la base de datos que están relacionados de
+`One-to-One`. Recordemos que anteriormente ya habíamos trabajado estas tablas quienes están mapeadas a las entidades
+`Owner` y `Address` respectivamente. Veamos cómo tenemos las tablas a nivel de base de datos:
+
+![owners y addresses relación one to one](./assets/owners-addresses-one-to-one.png)
+
+Como observamos no solo tenemos la relación de `One-to-One` entre las tablas `owners` y `addresses`, también está la
+tabla `tasks` relacionándose con la tabla `owners`, aunque en este apartado no trabajamos con la tabla `tasks` es
+importante considerarlo en el diagrama, solo para tener una idea visual, ya que puede influir cuando se haga
+eliminaciones de los `ownres` de esa manera sabremos por qué podría estar fallando la eliminación cuando nos lance un
+error de **constraint**.
+
+A continuación se muestra la implementación completa de la clase de servicio **OwnerService**. Recordemos que
+anteriormente ya habíamos trabajado con estas entidades, pero solo para la lectura de los registros:
+
+````java
+
+@RequiredArgsConstructor
+@Service
+public class OwnerService {
+    private final IOwnerRepository ownerRepository;
+
+    @Transactional(readOnly = true)
+    public List<Owner> getAllOwners() {
+        return this.ownerRepository.findAll();
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<Owner> getOwner(Integer id) {
+        return this.ownerRepository.findById(id);
+    }
+
+    @Transactional
+    public Owner createOwner(Owner owner) {
+        return this.ownerRepository.save(owner);
+    }
+
+    @Transactional
+    public List<Owner> createListOwners(List<Owner> owner) {
+        return this.ownerRepository.saveAll(owner);
+    }
+
+    @Transactional
+    public Optional<Owner> updateOwner(Integer id, Owner owner) {
+        return this.ownerRepository.findById(id)
+                .map(ownerDB -> {
+                    ownerDB.setFullName(owner.getFullName());
+                    ownerDB.setEmail(owner.getEmail());
+                    ownerDB.setUsername(owner.getUsername());
+                    ownerDB.setAddress(owner.getAddress());
+                    return this.ownerRepository.save(ownerDB);
+                });
+    }
+
+    @Transactional
+    public Optional<Owner> patchOwner(Integer id, Owner owner) {
+        return this.ownerRepository.findById(id)
+                .map(ownerDB -> {
+                    ownerDB.setEmail(owner.getEmail());
+                    return this.ownerRepository.save(ownerDB);
+                });
+    }
+
+    @Transactional
+    public Optional<Boolean> deleteOwner(Integer id) {
+        return this.ownerRepository.findById(id)
+                .map(ownerDB -> {
+                    this.ownerRepository.deleteById(id);
+                    return true;
+                });
+    }
+
+    @Transactional
+    public void deleteAllOwners() {
+        this.ownerRepository.deleteAll();
+    }
+}
+````
+
+De la misma manera, se muestra a continuación la implementación completa del controlador **OwnerController**:
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/owners")
+public class OwnerController {
+
+    private final OwnerService ownerService;
+    private final TaskService taskService;
+
+    @GetMapping
+    public ResponseEntity<List<Owner>> getOwners() {
+        return ResponseEntity.ok(this.ownerService.getAllOwners());
+    }
+
+    @GetMapping(path = "/{id}")
+    public ResponseEntity<Owner> getOwner(@PathVariable Integer id) {
+        return this.ownerService.getOwner(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @GetMapping(path = "/{id}/details")
+    public ResponseEntity<OwnerDetails> getOwnerDetails(@PathVariable Integer id) {
+        return this.ownerService.getOwner(id)
+                .map(ownerDB -> {
+                    List<Task> tasks = this.taskService.findAllByOwner(id);
+                    return ResponseEntity.ok(new OwnerDetails(ownerDB, tasks));
+                })
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PostMapping
+    public ResponseEntity<Owner> createOwner(@RequestBody Owner owner) {
+        Owner ownerDB = this.ownerService.createOwner(owner);
+        URI uriOwner = URI.create("/api/v1/owners/" + ownerDB.getId());
+        return ResponseEntity.created(uriOwner).body(ownerDB);
+    }
+
+    @PostMapping(path = "/all")
+    public ResponseEntity<List<Owner>> createListOwners(@RequestBody List<Owner> owners) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(this.ownerService.createListOwners(owners));
+    }
+
+    @PutMapping(path = "/{id}")
+    public ResponseEntity<Owner> updateOwner(@PathVariable Integer id, @RequestBody Owner owner) {
+        return this.ownerService.updateOwner(id, owner)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PatchMapping(path = "/{id}")
+    public ResponseEntity<Owner> patchOwner(@PathVariable Integer id, @RequestBody Owner owner) {
+        return this.ownerService.patchOwner(id, owner)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping(path = "/{id}")
+    public ResponseEntity<Void> deleteOwner(@PathVariable Integer id) {
+        return this.ownerService.deleteOwner(id)
+                .map(wasDeleted -> new ResponseEntity<Void>(HttpStatus.NO_CONTENT))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping
+    public ResponseEntity<Void> deleteAllOwners() {
+        this.ownerService.deleteAllOwners();
+        return ResponseEntity.noContent().build();
+    }
+
+}
+````
+
+Probamos los endpoints implementados:
+
+- Crear un owner:
+
+````bash
+curl -v -X POST -H "Content-Type: application/json" -d "{\"fullName\": \"Rosa Maria\", \"email\":\"rosa@gmail.com\", \"username\":\"rosita\", \"address\": {\"addressLine\": \"Cajamarca City\"}}" http://localhost:8080/api/v1/owners | jq
+
+>
+< HTTP/1.1 201
+< Location: /api/v1/owners/21
+< Content-Type: application/json
+<
+{
+  "id": 21,
+  "fullName": "Rosa Maria",
+  "email": "rosa@gmail.com",
+  "username": "rosita",
+  "address": {
+    "id": 3,
+    "addressLine": "Cajamarca City"
+  }
+}
+````
+
+````roomsql
+INSERT INTO `owners` (`email`, `full_name`, `username`) VALUES (?, ?, ?)
+--column index 1, parameter value [rosa@gmail.com], value class [java.lang.String]
+--column index 2, parameter value [Rosa Maria], value class [java.lang.String]
+--column index 3, parameter value [rosita], value class [java.lang.String]
+````
+
+````roomsql
+INSERT INTO `addresses` (`address_line`, `owner_id`) VALUES (?, ?)
+--column index 1, parameter value [Cajamarca City], value class [java.lang.String]
+--column index 2, parameter value [21], value class [java.lang.Integer]
+````
+
+- Crear una lista de owners:
+
+````bash
+curl -v -X POST -H "Content-Type: application/json" -d "[{\"fullName\": \"Rosa Maria\", \"email\":\"rosa@gmail.com\", \"username\":\"rosita\", \"address\": {\"addressLine\": \"Cajamarca City\"}}, {\"fullName\": \"Rosa Milagros\", \"email\":\"rosilla@gmail.com\", \"username\":\"rosi\", \"address\": {\"addressLine\": \"Chimbote\"}}]" http://localhost:8080/api/v1/owners/all | jq
+
+>
+< HTTP/1.1 201
+< Content-Type: application/json
+<
+[
+  {
+    "id": 22,
+    "fullName": "Rosa Maria",
+    "email": "rosa@gmail.com",
+    "username": "rosita",
+    "address": {
+      "id": 4,
+      "addressLine": "Cajamarca City"
+    }
+  },
+  {
+    "id": 23,
+    "fullName": "Rosa Milagros",
+    "email": "rosilla@gmail.com",
+    "username": "rosi",
+    "address": {
+      "id": 5,
+      "addressLine": "Chimbote"
+    }
+  }
+]
+````
+
+- Actualizar un owner:
+
+````bash
+curl -v -X PUT -H "Content-Type: application/json" -d "{\"fullName\": \"Vicky\", \"email\":\"vicky@gmail.com\", \"username\":\"vicky\", \"address\": {\"addressLine\": \"Espana\"}}" http://localhost:8080/api/v1/owners/22 | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "id": 22,
+  "fullName": "Vicky",
+  "email": "vicky@gmail.com",
+  "username": "vicky",
+  "address": {
+    "id": 6,
+    "addressLine": "Espana"
+  }
+}
+````
+
+- Actualizar parcialmente un dato del owner:
+
+````bash
+curl -v -X PATCH -H "Content-Type: application/json" -d "{\"email\":\"vicky_es@gmail.com\"}" http://localhost:8080/api/v1/owners/22 | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "id": 22,
+  "fullName": "Vicky",
+  "email": "vicky_es@gmail.com",
+  "username": "vicky",
+  "address": {
+    "id": 6,
+    "addressLine": "Espana"
+  }
+}
+````
+
+- Eliminar un owner
+
+````bash
+curl -v -X DELETE http://localhost:8080/api/v1/owners/22 | jq
+
+>
+< HTTP/1.1 204
+````
+
+````roomsql
+SELECT `owners`.`id` AS `id`, `owners`.`email` AS `email`, `owners`.`full_name` AS `full_name`, `owners`.`username` AS `username`, `address`.`id` AS `address_id`, `address`.`address_line` AS `address_address_line` 
+FROM `owners` 
+    LEFT OUTER JOIN `addresses` `address` ON `address`.`owner_id` = `owners`.`id` 
+WHERE `owners`.`id` = ?
+--column index 1, parameter value [22], value class [java.lang.Integer]
+````
+
+````sql
+SELECT `owners`.`id` FROM `owners` WHERE `owners`.`id` = ? FOR UPDATE
+column index 1, parameter value [22], value class [java.lang.Integer]
+````
+
+````roomsql
+DELETE FROM `addresses` WHERE `addresses`.`owner_id` = ?
+--column index 1, parameter value [22], value class [java.lang.Integer]
+````
+
+````roomsql
+DELETE FROM `owners` WHERE `owners`.`id` = ?
+--column index 1, parameter value [22], value class [java.lang.Integer]
+````
+
+- Eliminar todos los owners
+
+````bash
+curl -v -X DELETE http://localhost:8080/api/v1/owners | jq
+
+>
+< HTTP/1.1 500
+<
+{
+  "timestamp": "2023-08-28T18:25:30.663+00:00",
+  "status": 500,
+  "error": "Internal Server Error",
+  "path": "/api/v1/owners"
+}
+````
+
+````bash
+java.sql.SQLIntegrityConstraintViolationException: 
+Cannot delete or update a parent row: 
+a foreign key constraint fails (`db_spring_data_jdbc`.`tasks`, 
+  CONSTRAINT `fk_owners_tasks` FOREIGN KEY (`owner_id`) REFERENCES `owners` (`id`))
+````
+
+Como observamos, la eliminación de todos los owners nos está fallando, eso ocurre porque en la tercera tabla relacionada
+con `owners`, me refiero a la tabla `tasks` tiene referencias (FK) a esa tabla, por lo tanto, ocurre el error de
+constraint, no podemos eliminar registros de la tabla `owners` mientras la tabla `tasks` las tenga referenciadas.
+Pero en sí, el endpoint funcionaría si no hubiera referencias de owners en tasks.
+
+
+
