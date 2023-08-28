@@ -2080,3 +2080,384 @@ que se muestra a continuación:
       }
 ]
 ````
+
+---
+
+# Sección: Spring Data JDBC - CRUD
+
+---
+
+## CRUD API de una sola entidad
+
+Crearemos un CRUD API completo de la entidad **Tutorial**, para eso comenzamos creando su tabla correspondiente en la
+base de datos y poblándola con datos de prueba:
+
+````sql
+DROP TABLE IF EXISTS tutorials;
+
+CREATE TABLE tutorials(
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(100) NOT NULL
+);
+````
+
+````sql
+INSERT INTO tutorials(title) VALUES('Spring Data JDBC');
+INSERT INTO tutorials(title) VALUES('Spring Data JPA');
+INSERT INTO tutorials(title) VALUES('Spring Boot 3');
+INSERT INTO tutorials(title) VALUES('Microservicios con Eureka');
+INSERT INTO tutorials(title) VALUES('Curso de Docker');
+````
+
+Creamos la interfaz para la entidad Tutorial:
+
+````java
+public interface ITutorialRepository extends ListCrudRepository<Tutorial, Integer> {
+
+}
+````
+
+Creamos el servicio implementando el crud:
+
+````java
+
+@RequiredArgsConstructor
+@Service
+public class TutorialService {
+
+    private final ITutorialRepository tutorialRepository;
+
+    @Transactional(readOnly = true)
+    public List<Tutorial> getAllTutorials() {
+        return this.tutorialRepository.findAll();
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<Tutorial> getTutorial(Integer id) {
+        return this.tutorialRepository.findById(id);
+    }
+
+    @Transactional
+    public Tutorial createTutorial(Tutorial tutorial) {
+        return this.tutorialRepository.save(tutorial);
+    }
+
+    @Transactional
+    public List<Tutorial> createListTutorials(List<Tutorial> tutorials) {
+        return this.tutorialRepository.saveAll(tutorials);
+    }
+
+    @Transactional
+    public Optional<Tutorial> updateTutorial(Integer id, Tutorial tutorial) {
+        return this.tutorialRepository.findById(id)
+                .map(tutorialDB -> {
+                    tutorialDB.setTitle(tutorial.getTitle());
+                    return this.tutorialRepository.save(tutorialDB);
+                });
+    }
+
+    @Transactional
+    public Optional<Tutorial> patchTutorial(Integer id, Tutorial tutorial) {
+        return this.tutorialRepository.findById(id)
+                .map(tutorialDB -> {
+                    tutorialDB.setTitle(tutorial.getTitle());
+                    return this.tutorialRepository.save(tutorialDB);
+                });
+    }
+
+    @Transactional
+    public Optional<Boolean> deleteTutorial(Integer id) {
+        return this.tutorialRepository.findById(id)
+                .map(tutorialDB -> {
+                    this.tutorialRepository.deleteById(id);
+                    return true;
+                });
+    }
+
+    @Transactional
+    public void deleteAllTutorials() {
+        this.tutorialRepository.deleteAll();
+    }
+}
+````
+
+Finalmente, implementamos la clase de controlador:
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/tutorials")
+public class TutorialController {
+
+    private final TutorialService tutorialService;
+
+    @GetMapping
+    public ResponseEntity<List<Tutorial>> getTutorials() {
+        return ResponseEntity.ok(this.tutorialService.getAllTutorials());
+    }
+
+    @GetMapping(path = "/{id}")
+    public ResponseEntity<Tutorial> getTutorial(@PathVariable Integer id) {
+        return this.tutorialService.getTutorial(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PostMapping
+    public ResponseEntity<Tutorial> createTutorial(@RequestBody Tutorial tutorial) {
+        Tutorial tutorialDB = this.tutorialService.createTutorial(tutorial);
+        URI uriTutorial = URI.create("/api/v1/tutorials/" + tutorialDB.getId());
+        return ResponseEntity.created(uriTutorial).body(tutorialDB);
+    }
+
+    @PostMapping(path = "/all")
+    public ResponseEntity<List<Tutorial>> createListTutorials(@RequestBody List<Tutorial> tutorials) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(this.tutorialService.createListTutorials(tutorials));
+    }
+
+    @PutMapping(path = "/{id}")
+    public ResponseEntity<Tutorial> updateTutorial(@PathVariable Integer id, @RequestBody Tutorial tutorial) {
+        return this.tutorialService.updateTutorial(id, tutorial)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PatchMapping(path = "/{id}")
+    public ResponseEntity<Tutorial> patchTutorial(@PathVariable Integer id, @RequestBody Tutorial tutorial) {
+        return this.tutorialService.patchTutorial(id, tutorial)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping(path = "/{id}")
+    public ResponseEntity<Void> deleteTutorial(@PathVariable Integer id) {
+        return this.tutorialService.deleteTutorial(id)
+                .map(wasDeleted -> new ResponseEntity<Void>(HttpStatus.NO_CONTENT))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping
+    public ResponseEntity<Void> deleteAllTutorials() {
+        this.tutorialService.deleteAllTutorials();
+        return ResponseEntity.noContent().build();
+    }
+}
+````
+
+Realizamos las peticiones desde nuestro cliente curl:
+
+- Lista todos los tutoriales:
+
+````bash
+curl -v http://localhost:8080/api/v1/tutorials | jq
+
+--- Respuesta
+< HTTP/1.1 200
+<
+[
+  {
+    "id": 1,
+    "title": "Spring Data JDBC"
+  },
+  {
+    "id": 2,
+    "title": "Spring Data JPA"
+  },
+  {
+    "id": 3,
+    "title": "Spring Boot 3"
+  },
+  {
+    "id": 4,
+    "title": "Microservicios con Eureka"
+  },
+  {
+    "id": 5,
+    "title": "Curso de Docker"
+  }
+]
+````
+
+````roomsql
+SELECT `tutorials`.`id` AS `id`, `tutorials`.`title` AS `title` 
+FROM `tutorials`
+````
+
+- Ver un tutorial en específico:
+
+````bash
+ curl -v http://localhost:8080/api/v1/tutorials/4 | jq
+ 
+--- Respuesta
+>
+< HTTP/1.1 200
+<
+{
+  "id": 4,
+  "title": "Microservicios con Eureka"
+}
+````
+
+````roomsql
+SELECT `tutorials`.`id` AS `id`, `tutorials`.`title` AS `title` 
+FROM `tutorials` 
+WHERE `tutorials`.`id` = ?
+--Setting SQL statement parameter value: column index 1, parameter value [4], value class [java.lang.Integer], SQL type 4
+````
+
+- Guardar un tutorial
+
+````bash
+curl -v -X POST -H "Content-Type: application/json" -d "{\"title\": \"Curso de Angular\"}" http://localhost:8080/api/v1/tutorials | jq
+
+--- Respuesta
+>
+< HTTP/1.1 201
+< Location: /api/v1/tutorials/6
+<
+{
+  "id": 6,
+  "title": "Curso de Angular"
+}
+````
+
+````roomsql
+INSERT INTO `tutorials` (`title`) VALUES (?)
+--Setting SQL statement parameter value: column index 1, parameter value [Curso de Angular], value class [java.lang.String], SQL type 12
+````
+
+- Guardar una lista de tutoriales
+
+````bash
+curl -v -X POST -H "Content-Type: application/json" -d "[{\"title\": \"Curso de Angular\"}, {\"title\": \"Curso de TypeScript\"}, {\"title\": \"Kubernetes\"}]" http://localhost:8080/api/v1/tutorials/all | jq
+
+--- Respuesta
+< HTTP/1.1 201
+< Content-Type: application/json
+<
+[
+  {
+    "id": 6,
+    "title": "Curso de Angular"
+  },
+  {
+    "id": 7,
+    "title": "Curso de TypeScript"
+  },
+  {
+    "id": 8,
+    "title": "Kubernetes"
+  }
+]
+````
+
+````roomsql
+INSERT INTO `tutorials` (`title`) VALUES (?)
+-- Setting SQL statement parameter value: column index 1, parameter value [Curso de Angular], value class [java.lang.String], SQL type 12
+-- Setting SQL statement parameter value: column index 1, parameter value [Curso de Angular], value class [java.lang.String], SQL type 12
+-- Setting SQL statement parameter value: column index 1, parameter value [Curso de TypeScript], value class [java.lang.String], SQL type 12
+--  Setting SQL statement parameter value: column index 1, parameter value [Kubernetes], value class [java.lang.String], SQL type 12
+````
+
+- Actualizar todos los datos de un tutorial
+
+````bash
+curl -v -X PUT -H "Content-Type: application/json" -d "{\"title\": \"Curso SASS\"}" http://localhost:8080/api/v1/tutorials/7 | jq
+
+--- Respuesta
+>
+} [23 bytes data]
+< HTTP/1.1 200
+<
+{
+  "id": 7,
+  "title": "Curso SASS"
+}
+````
+
+````roomsql
+SELECT `tutorials`.`id` AS `id`, `tutorials`.`title` AS `title` 
+FROM `tutorials` 
+WHERE `tutorials`.`id` = ?
+-- Setting SQL statement parameter value: column index 1, parameter value [7], value class [java.lang.Integer], SQL type 4
+
+
+````
+
+````roomsql
+UPDATE `tutorials` 
+    SET `title` = ? 
+WHERE `tutorials`.`id` = ?
+-- Setting SQL statement parameter value: column index 1, parameter value [Curso SASS], value class [java.lang.String], SQL type 12
+-- Setting SQL statement parameter value: column index 2, parameter value [7], value class [java.lang.Integer], SQL type 4
+````
+
+- Actualizar algunos datos de un tutorial
+
+````bash
+curl -v -X PATCH -H "Content-Type: application/json" -d "{\"title\": \"Angular v16 Signals\"}" http://localhost:8080/api/v1/tutorials/6 | jq
+
+--- Respuesta
+>
+< HTTP/1.1 200
+<
+{
+  "id": 6,
+  "title": "Angular v16 Signals"
+}
+````
+
+````roomsql
+SELECT `tutorials`.`id` AS `id`, `tutorials`.`title` AS `title` 
+FROM `tutorials` 
+WHERE `tutorials`.`id` = ?
+-- Setting SQL statement parameter value: column index 1, parameter value [6], value class [java.lang.Integer], SQL type 4
+````
+
+````roomsql
+UPDATE `tutorials` 
+    SET `title` = ? 
+WHERE `tutorials`.`id` = ?
+-- Setting SQL statement parameter value: column index 1, parameter value [Angular v16 Signals], value class [java.lang.String], SQL type 12
+-- Setting SQL statement parameter value: column index 2, parameter value [6], value class [java.lang.Integer], SQL type 4
+````
+
+- Elimina un tutorial
+
+````bash
+curl -v -X DELETE http://localhost:8080/api/v1/tutorials/6 | jq
+
+--- Respuesta
+>
+< HTTP/1.1 204
+````
+
+````roomsql
+SELECT `tutorials`.`id` AS `id`, `tutorials`.`title` AS `title` 
+FROM `tutorials` 
+WHERE `tutorials`.`id` = ?
+-- Setting SQL statement parameter value: column index 1, parameter value [6], value class [java.lang.Integer], SQL type 4
+````
+
+````roomsql
+DELETE FROM `tutorials` 
+WHERE `tutorials`.`id` = ?
+-- Setting SQL statement parameter value: column index 1, parameter value [6], value class [java.lang.Integer], SQL type 4
+````
+
+- Elimina todos los tutoriales
+
+````bash
+curl -v -X DELETE http://localhost:8080/api/v1/tutorials | jq
+
+--- Respuesta
+>
+< HTTP/1.1 204
+<
+````
+
+````roomsql
+DELETE FROM `tutorials`
+````

@@ -72,3 +72,10 @@ CREATE TABLE comments(
     updated_on DATETIME,
     CONSTRAINT fk_tasks_comments FOREIGN KEY(task_id) REFERENCES tasks(id)
 );
+
+DROP TABLE IF EXISTS tutorials;
+
+CREATE TABLE tutorials(
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(100) NOT NULL
+);
