@@ -727,19 +727,6 @@ public class Comment {
     private String content;
     private LocalDateTime publishedOn;
     private LocalDateTime updatedOn;
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        Comment comment = (Comment) o;
-        return Objects.equals(id, comment.id);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(id);
-    }
 }
 ````
 
@@ -2792,5 +2779,418 @@ con `owners`, me refiero a la tabla `tasks` tiene referencias (FK) a esa tabla, 
 constraint, no podemos eliminar registros de la tabla `owners` mientras la tabla `tasks` las tenga referenciadas.
 Pero en sí, el endpoint funcionaría si no hubiera referencias de owners en tasks.
 
+## CRUD API Relación One-to-Many entre owners y tasks
+
+En este apartado veremos cómo crear registros en la base de datos cuando dos entidades son **aggregate roots** y tienen
+una relación de `One-to-Many`. Recordemos un poco, tenemos la entidad `Owner` y `Task`, ambos son `aggregate roots` de
+sus respectivos agregados y lo que hicimos para poder relacionar ambos agregados en una relación del tipo `One-to-Many`,
+fue utilizar la interfaz `AggregateReference` dentro de `Task`, luego cuando consultábamos directamente por la lista
+de tasks o un task en específico, lo que obteníamos era información del **task**, información del **comment** y ahora
+información del **owner id**, por ejemplo, algo similar a cómo se muestra a continuación:
+
+````json
+{
+  "id": 30,
+  "title": "Pintado fachada",
+  "content": "Trabajamos para remodelar fachada",
+  "publishedOn": "2023-08-28T19:58:39",
+  "updatedOn": "2023-08-28T19:58:39",
+  "comments": [
+    {
+      "id": 4,
+      "name": "Karen",
+      "content": "Colores suaves sería genial",
+      "publishedOn": "2023-08-28T19:58:39",
+      "updatedOn": "2023-08-28T19:58:39"
+    }
+  ],
+  "owner": {
+    "id": 10
+  }
+}
+````
+
+Recordemos también que decíamos que obtener el **owner id** era suficiente en algunos casos, pero luego nosotros
+creamos DTO's para poder obtener la información completa de ambos agregados.
+
+### Creando un Task
+
+Entonces, **¿Cómo podemos guardar un registro de un Task si está relacionado con un Owner?** lo primero que debemos
+hacer es crear un DTO llamado **TaskCreate** con el que enviaremos información desde el cliente y luego utilizando la
+clase de servicio crearemos un objeto Task para poder persistirlo, veamos cómo:
+
+````java
+public record TaskCreate(Integer ownerId, String title, String content) {
+}
+````
+
+El record anterior contiene información que será pasada desde el cliente, aunque falta información como el
+**publishedOn**, **updatedOn**, **comments**. No nos preocupemos por esa información, ya que será completada en la
+clase de servicio. Con respecto a cómo agregar **comments**, eso lo veremos más adelante.
+
+````java
+
+@RequiredArgsConstructor
+@Service
+public class TaskService {
+
+    /* other methods*/
+
+    @Transactional
+    public Task createTask(TaskCreate taskCreate) {
+        Task newTask = Task.builder()
+                .title(taskCreate.title())
+                .content(taskCreate.content())
+                .publishedOn(LocalDateTime.now())
+                .owner(AggregateReference.to(taskCreate.ownerId())) // (1)
+                .build();
+        return this.taskRepository.save(newTask);
+    }
+}
+````
+
+Es importante observar **(1)** cómo creamos un `AggregateReference` el cual es pasado al atributo `owner` de la clase
+Task, ese atributo hace referencia a la llave foránea `owner_id`.
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/tasks")
+public class TaskController {
+
+    /* other code */
+
+    @PostMapping
+    public ResponseEntity<Task> createTask(@RequestBody TaskCreate taskCreate) {
+        Task taskDB = this.taskService.createTask(taskCreate);
+        URI uriTask = URI.create("/api/v1/tasks/" + taskDB.getId());
+        return ResponseEntity.created(uriTask).body(taskDB);
+    }
+
+}
+````
+
+Listo, hasta este punto probaremos crear el registro para un Task:
+
+````bash
+curl -v -X POST -H "Content-Type: application/json" -d "{\"title\": \"Crear maceteros\", \"content\": \"Tarea por completar\", \"ownerId\": 20}" http://localhost:8080/api/v1/tasks | jq
 
 
+>
+< HTTP/1.1 201
+< Location: /api/v1/tasks/41
+<
+{
+  "id": 41,
+  "title": "Crear maceteros",
+  "content": "Tarea por completar",
+  "publishedOn": "2023-08-28T20:17:09.2533282",
+  "updatedOn": null,
+  "comments": null,
+  "owner": {
+    "id": 20
+  }
+}
+````
+
+Las consultas generadas en consola:
+
+````roomsql
+INSERT INTO `tasks` (`content`, `owner_id`, `published_on`, `title`, `updated_on`) VALUES (?, ?, ?, ?, ?)
+--column index 1, parameter value [Tarea por completar], value class [java.lang.String]
+--column index 2, parameter value [20], value class [java.lang.Integer]
+--column index 3, parameter value [2023-08-28T20:17:09.253328200], value class [java.time.LocalDateTime]
+--column index 4, parameter value [Crear maceteros], value class [java.lang.String]
+--column index 5, parameter value [null], value class [null]
+````
+
+El registro fue exitoso, acabamos de registrar un `Task` para el `Owner` con id = 20.
+
+### Registrando los comments para un Task
+
+Como observamos en el resultado anterior, cuando creamos un registro para un Task lo creamos sin comentarios. En este
+apartado veremos cómo agregar comentarios a un Task utilizando los métodos que creamos desde un inicio en nuestra
+entidad `Task`, esos métodos son los que a continuación muestro:
+
+````java
+
+@Data
+@Builder
+@Table(name = "tasks")
+public class Task {
+    /* omitted code */
+    public void addComment(Comment comment) {
+        this.comments.add(comment);
+    }
+
+    public void removeComment(Comment comment) {
+        this.comments.remove(comment);
+    }
+}
+````
+
+El siguiente paso sería crear un DTO llamado `CommentUpdate`, cuya información será enviada desde el cliente:
+
+````java
+public record CommentUpdate(String name, String content) {
+}
+````
+
+Ahora, en la clase de servicio creamos un método que nos permita agregar un `Comment` a un `Task`:
+
+````java
+
+@RequiredArgsConstructor
+@Service
+public class TaskService {
+    /* omitted code*/
+
+    @Transactional
+    public Optional<Task> taskAddComment(Integer id, CommentUpdate commentUpdate) {
+        return this.taskRepository.findById(id)
+                .map(taskDB -> {
+                    Comment newComment = Comment.builder()
+                            .name(commentUpdate.name())
+                            .content(commentUpdate.content())
+                            .publishedOn(LocalDateTime.now())
+                            .build();
+                    taskDB.addComment(newComment);
+                    return this.taskRepository.save(taskDB);
+                });
+    }
+}
+````
+
+Lo mismo hacemos en el controlador, creamos un endpoint que será exclusivo para poder agregar comentarios a un task en
+específico:
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/tasks")
+public class TaskController {
+
+    /* omitted code */
+
+    @PostMapping(path = "/{id}/comment")
+    public ResponseEntity<Task> taskAddComment(@PathVariable Integer id, @RequestBody CommentUpdate comment) {
+        return this.taskService.taskAddComment(id, comment)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+}
+````
+
+Finalmente, probamos agregar comentario a un Task:
+
+````bash
+curl -v -X POST -H "Content-Type: application/json" -d "{\"name\": \"verduras\", \"content\": \"Solo comprar verduras\"}" http://localhost:8080/api/v1/tasks/40/comment | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "id": 40,
+  "title": "Compra mercado",
+  "content": "Compras del mes",
+  "publishedOn": "2023-08-28T22:47:02",
+  "updatedOn": "2023-08-28T22:47:02",
+  "comments": [
+    {
+      "id": 5,
+      "name": "verduras",
+      "content": "Solo comprar verduras",
+      "publishedOn": "2023-08-28T22:47:32.852101",
+      "updatedOn": null
+    }
+  ],
+  "owner": {
+    "id": 10
+  }
+}
+````
+
+Volvemos a insertar otro comentario:
+
+````bash
+curl -v -X POST -H "Content-Type: application/json" -d "{\"name\": \"Fiesta infantil\", \"content\": \"Comprar golosinas\"}" http://localhost:8080/api/v1/tasks/40/comment | jq
+
+
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "id": 40,
+  "title": "Compra mercado",
+  "content": "Compras del mes",
+  "publishedOn": "2023-08-28T22:47:02",
+  "updatedOn": "2023-08-28T22:47:02",
+  "comments": [
+    {
+      "id": 5,
+      "name": "verduras",
+      "content": "Solo comprar verduras",
+      "publishedOn": "2023-08-28T22:47:33",
+      "updatedOn": null
+    },
+    {
+      "id": 6,
+      "name": "Fiesta infantil",
+      "content": "Comprar golosinas",
+      "publishedOn": "2023-08-28T22:54:09.1338213",
+      "updatedOn": null
+    }
+  ],
+  "owner": {
+    "id": 10
+  }
+````
+
+### Actualizando un Task
+
+Anteriormente, vimos cómo crear un **Task**, para eso nos apoyamos en el **record** `TaskCreate`. En este apartado
+implementaremos la actualización de un **Task** apoyándonos nuevamente de otro **record** `TaskUpdate`:
+
+````java
+public record TaskCreate(Integer ownerId, String title, String content) {
+}
+````
+
+En nuestra clase de servicio creamos un método para actualizar el task:
+
+````java
+
+@RequiredArgsConstructor
+@Service
+public class TaskService {
+
+    /* omitted code */
+
+    @Transactional
+    public Optional<Task> updateTask(Integer id, TaskUpdate taskUpdate) {
+        return this.taskRepository.findById(id)
+                .map(taskDB -> {
+
+                    taskDB.setTitle(taskUpdate.title());
+                    taskDB.setContent(taskUpdate.content());
+                    taskDB.setUpdatedOn(LocalDateTime.now());
+                    taskDB.setOwner(AggregateReference.to(taskUpdate.ownerId()));
+                    taskDB.setComments(taskUpdate.comments());
+
+                    return this.taskRepository.save(taskDB);
+                });
+    }
+}
+````
+
+Finalmente, en nuestra clase de controlador implementamos el endpoint para actualizar el task:
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/tasks")
+public class TaskController {
+    /* omitted code */
+
+    @PutMapping(path = "/{id}")
+    public ResponseEntity<Task> updateTask(@PathVariable Integer id, @RequestBody TaskUpdate taskUpdate) {
+        return this.taskService.updateTask(id, taskUpdate)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+}
+````
+
+Probamos el endpoint actualizando un task existente en la base de datos:
+
+````bash
+curl -v -X PUT -H "Content-Type: application/json" -d "{\"title\": \"Mi nuevo Task\", \"content\": \"Probando actualizacion\", \"ownerId\": 10, \"comments\": [{\"name\": \"Comentario 01\", \"content\": \"Mi comentario 01\", \"publishedOn\": \"2023-08-28T23:18:20\", \"updatedOn\": \"2023-08-28T23:18:20\"}, {\"name\": \"Comentario 02\", \"content\": \"Mi comentario 02\", \"publishedOn\": \"2023-08-28T22:18:20\", \"updatedOn\": \"2023-08-28T22:18:20\"}]}" http://localhost:8080/api/v1/tasks/40 | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "id": 40,
+  "title": "Mi nuevo Task",
+  "content": "Probando actualizacion",
+  "publishedOn": "2023-08-29T00:11:21",
+  "updatedOn": "2023-08-29T00:15:15.3550109",
+  "comments": [
+    {
+      "id": 5,
+      "name": "Comentario 01",
+      "content": "Mi comentario 01",
+      "publishedOn": "2023-08-28T23:18:20",
+      "updatedOn": "2023-08-28T23:18:20"
+    },
+    {
+      "id": 6,
+      "name": "Comentario 02",
+      "content": "Mi comentario 02",
+      "publishedOn": "2023-08-28T22:18:20",
+      "updatedOn": "2023-08-28T22:18:20"
+    }
+  ],
+  "owner": {
+    "id": 10
+  }
+}
+````
+
+### Eliminando un Task
+
+Eliminar un Task es más sencillo, primero empecemos creando el método en la clase de servicio:
+
+````java
+
+@RequiredArgsConstructor
+@Service
+public class TaskService {
+
+    /* omitted code */
+
+    @Transactional
+    public Optional<Boolean> deleteTask(Integer id) {
+        return this.taskRepository.findById(id)
+                .map(taskDB -> {
+                    this.taskRepository.deleteById(id);
+                    return true;
+                });
+    }
+}
+````
+
+Ahora implementemos el endpoint para eliminar un task:
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/tasks")
+public class TaskController {
+
+    /* omitted code */
+
+    @DeleteMapping(path = "/{id}")
+    public ResponseEntity<Void> deleteTask(@PathVariable Integer id) {
+        return this.taskService.deleteTask(id)
+                .map(wasDeleted -> new ResponseEntity<Void>(HttpStatus.NO_CONTENT))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+}
+````
+
+Levantamos el proyecto y probamos la funcionalidad de eliminar un task:
+
+````bash
+curl -v -X DELETE http://localhost:8080/api/v1/tasks/40 | jq
+
+>
+< HTTP/1.1 204
+````
