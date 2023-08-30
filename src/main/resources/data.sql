@@ -27,3 +27,9 @@ INSERT INTO comments(id, task_id, name, content, published_on, updated_on) VALUE
 INSERT INTO comments(id, task_id, name, content, published_on, updated_on) VALUES(2, 10, 'Desarrollador Junior', 'Quiero participar', now(), now());
 INSERT INTO comments(id, task_id, name, content, published_on, updated_on) VALUES(3, 20, 'vecino', 'Excelente decisión', now(), now());
 INSERT INTO comments(id, task_id, name, content, published_on, updated_on) VALUES(4, 30, 'Karen', 'Colores suaves sería genial', now(), now());
+
+INSERT INTO tutorials(title) VALUES('Spring Data JDBC');
+INSERT INTO tutorials(title) VALUES('Spring Data JPA');
+INSERT INTO tutorials(title) VALUES('Spring Boot 3');
+INSERT INTO tutorials(title) VALUES('Microservicios con Eureka');
+INSERT INTO tutorials(title) VALUES('Curso de Docker');

@@ -25,6 +25,65 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
+    public Optional<User> getUser(Integer id) {
+        return this.userRepository.findById(id);
+    }
+
+    @Transactional
+    public User createUser(User user) {
+        return this.userRepository.save(user);
+    }
+
+    @Transactional
+    public Optional<User> updateUser(Integer id, User user) {
+        return this.userRepository.findById(id)
+                .map(userDB -> {
+                    userDB.setUsername(user.getUsername());
+                    userDB.setPassword(user.getPassword());
+                    userDB.setAccountNonExpired(user.getAccountNonExpired());
+                    userDB.setAccountNonLocked(user.getAccountNonLocked());
+                    userDB.setCredentialsNonExpired(user.getCredentialsNonExpired());
+                    userDB.setEnabled(user.getEnabled());
+                    userDB.setFirstName(user.getFirstName());
+                    userDB.setLastName(user.getLastName());
+                    userDB.setEmailAddress(user.getEmailAddress());
+                    userDB.setBirthdate(user.getBirthdate());
+                    return this.userRepository.save(userDB);
+                });
+    }
+
+    @Transactional
+    public Optional<Boolean> deleteUser(Integer id) {
+        return this.userRepository.findById(id)
+                .map(userDB -> {
+                    this.userRepository.deleteById(id);
+                    return true;
+                });
+    }
+
+    @Transactional
+    public Optional<UserDetails> addAuthority(Integer id, Authority authority) {
+        return this.userRepository.findById(id)
+                .map(userDB -> {
+                    userDB.addAuthority(authority);
+                    User userSaved = this.userRepository.save(userDB);
+                    List<Authority> authorities = this.authorityRepository.findAllAuthoritiesByUserId(userDB.getId());
+                    return new UserDetails(userSaved, authorities);
+                });
+    }
+
+    @Transactional
+    public Optional<UserDetails> removeAuthority(Integer id, Authority authority) {
+        return this.userRepository.findById(id)
+                .map(userDB -> {
+                    userDB.removeAuthority(authority);
+                    User userSaved = this.userRepository.save(userDB);
+                    List<Authority> authorities = this.authorityRepository.findAllAuthoritiesByUserId(userDB.getId());
+                    return new UserDetails(userSaved, authorities);
+                });
+    }
+
+    @Transactional(readOnly = true)
     public Optional<UserDetails> getUserDetails(Integer id) {
         return this.userRepository.findById(id)
                 .map(userDB -> {

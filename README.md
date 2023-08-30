@@ -727,19 +727,6 @@ public class Comment {
     private String content;
     private LocalDateTime publishedOn;
     private LocalDateTime updatedOn;
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        Comment comment = (Comment) o;
-        return Objects.equals(id, comment.id);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(id);
-    }
 }
 ````
 
@@ -1587,7 +1574,6 @@ La entidad **AuthorityRef** es solo para contener identificadores de entidad de 
 ````java
 
 @Data
-@Builder
 @Table(name = "users_authorities")
 public class AuthorityRef {
     @Column(value = "authority_id")
@@ -2080,3 +2066,1867 @@ que se muestra a continuación:
       }
 ]
 ````
+
+---
+
+# Sección: Spring Data JDBC - CRUD
+
+---
+
+## CRUD API de una sola entidad
+
+Crearemos un CRUD API completo de la entidad **Tutorial**, para eso comenzamos creando su tabla correspondiente en la
+base de datos y poblándola con datos de prueba:
+
+````sql
+DROP TABLE IF EXISTS tutorials;
+
+CREATE TABLE tutorials(
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(100) NOT NULL
+);
+````
+
+````sql
+INSERT INTO tutorials(title) VALUES('Spring Data JDBC');
+INSERT INTO tutorials(title) VALUES('Spring Data JPA');
+INSERT INTO tutorials(title) VALUES('Spring Boot 3');
+INSERT INTO tutorials(title) VALUES('Microservicios con Eureka');
+INSERT INTO tutorials(title) VALUES('Curso de Docker');
+````
+
+Creamos la interfaz para la entidad Tutorial:
+
+````java
+public interface ITutorialRepository extends ListCrudRepository<Tutorial, Integer> {
+
+}
+````
+
+Creamos el servicio implementando el crud:
+
+````java
+
+@RequiredArgsConstructor
+@Service
+public class TutorialService {
+
+    private final ITutorialRepository tutorialRepository;
+
+    @Transactional(readOnly = true)
+    public List<Tutorial> getAllTutorials() {
+        return this.tutorialRepository.findAll();
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<Tutorial> getTutorial(Integer id) {
+        return this.tutorialRepository.findById(id);
+    }
+
+    @Transactional
+    public Tutorial createTutorial(Tutorial tutorial) {
+        return this.tutorialRepository.save(tutorial);
+    }
+
+    @Transactional
+    public List<Tutorial> createListTutorials(List<Tutorial> tutorials) {
+        return this.tutorialRepository.saveAll(tutorials);
+    }
+
+    @Transactional
+    public Optional<Tutorial> updateTutorial(Integer id, Tutorial tutorial) {
+        return this.tutorialRepository.findById(id)
+                .map(tutorialDB -> {
+                    tutorialDB.setTitle(tutorial.getTitle());
+                    return this.tutorialRepository.save(tutorialDB);
+                });
+    }
+
+    @Transactional
+    public Optional<Tutorial> patchTutorial(Integer id, Tutorial tutorial) {
+        return this.tutorialRepository.findById(id)
+                .map(tutorialDB -> {
+                    tutorialDB.setTitle(tutorial.getTitle());
+                    return this.tutorialRepository.save(tutorialDB);
+                });
+    }
+
+    @Transactional
+    public Optional<Boolean> deleteTutorial(Integer id) {
+        return this.tutorialRepository.findById(id)
+                .map(tutorialDB -> {
+                    this.tutorialRepository.deleteById(id);
+                    return true;
+                });
+    }
+
+    @Transactional
+    public void deleteAllTutorials() {
+        this.tutorialRepository.deleteAll();
+    }
+}
+````
+
+Finalmente, implementamos la clase de controlador:
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/tutorials")
+public class TutorialController {
+
+    private final TutorialService tutorialService;
+
+    @GetMapping
+    public ResponseEntity<List<Tutorial>> getTutorials() {
+        return ResponseEntity.ok(this.tutorialService.getAllTutorials());
+    }
+
+    @GetMapping(path = "/{id}")
+    public ResponseEntity<Tutorial> getTutorial(@PathVariable Integer id) {
+        return this.tutorialService.getTutorial(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PostMapping
+    public ResponseEntity<Tutorial> createTutorial(@RequestBody Tutorial tutorial) {
+        Tutorial tutorialDB = this.tutorialService.createTutorial(tutorial);
+        URI uriTutorial = URI.create("/api/v1/tutorials/" + tutorialDB.getId());
+        return ResponseEntity.created(uriTutorial).body(tutorialDB);
+    }
+
+    @PostMapping(path = "/all")
+    public ResponseEntity<List<Tutorial>> createListTutorials(@RequestBody List<Tutorial> tutorials) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(this.tutorialService.createListTutorials(tutorials));
+    }
+
+    @PutMapping(path = "/{id}")
+    public ResponseEntity<Tutorial> updateTutorial(@PathVariable Integer id, @RequestBody Tutorial tutorial) {
+        return this.tutorialService.updateTutorial(id, tutorial)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PatchMapping(path = "/{id}")
+    public ResponseEntity<Tutorial> patchTutorial(@PathVariable Integer id, @RequestBody Tutorial tutorial) {
+        return this.tutorialService.patchTutorial(id, tutorial)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping(path = "/{id}")
+    public ResponseEntity<Void> deleteTutorial(@PathVariable Integer id) {
+        return this.tutorialService.deleteTutorial(id)
+                .map(wasDeleted -> new ResponseEntity<Void>(HttpStatus.NO_CONTENT))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping
+    public ResponseEntity<Void> deleteAllTutorials() {
+        this.tutorialService.deleteAllTutorials();
+        return ResponseEntity.noContent().build();
+    }
+}
+````
+
+Realizamos las peticiones desde nuestro cliente curl:
+
+- Lista todos los tutoriales:
+
+````bash
+curl -v http://localhost:8080/api/v1/tutorials | jq
+
+--- Respuesta
+< HTTP/1.1 200
+<
+[
+  {
+    "id": 1,
+    "title": "Spring Data JDBC"
+  },
+  {
+    "id": 2,
+    "title": "Spring Data JPA"
+  },
+  {
+    "id": 3,
+    "title": "Spring Boot 3"
+  },
+  {
+    "id": 4,
+    "title": "Microservicios con Eureka"
+  },
+  {
+    "id": 5,
+    "title": "Curso de Docker"
+  }
+]
+````
+
+````roomsql
+SELECT `tutorials`.`id` AS `id`, `tutorials`.`title` AS `title` 
+FROM `tutorials`
+````
+
+- Ver un tutorial en específico:
+
+````bash
+ curl -v http://localhost:8080/api/v1/tutorials/4 | jq
+ 
+--- Respuesta
+>
+< HTTP/1.1 200
+<
+{
+  "id": 4,
+  "title": "Microservicios con Eureka"
+}
+````
+
+````roomsql
+SELECT `tutorials`.`id` AS `id`, `tutorials`.`title` AS `title` 
+FROM `tutorials` 
+WHERE `tutorials`.`id` = ?
+--Setting SQL statement parameter value: column index 1, parameter value [4], value class [java.lang.Integer], SQL type 4
+````
+
+- Guardar un tutorial
+
+````bash
+curl -v -X POST -H "Content-Type: application/json" -d "{\"title\": \"Curso de Angular\"}" http://localhost:8080/api/v1/tutorials | jq
+
+--- Respuesta
+>
+< HTTP/1.1 201
+< Location: /api/v1/tutorials/6
+<
+{
+  "id": 6,
+  "title": "Curso de Angular"
+}
+````
+
+````roomsql
+INSERT INTO `tutorials` (`title`) VALUES (?)
+--Setting SQL statement parameter value: column index 1, parameter value [Curso de Angular], value class [java.lang.String], SQL type 12
+````
+
+- Guardar una lista de tutoriales
+
+````bash
+curl -v -X POST -H "Content-Type: application/json" -d "[{\"title\": \"Curso de Angular\"}, {\"title\": \"Curso de TypeScript\"}, {\"title\": \"Kubernetes\"}]" http://localhost:8080/api/v1/tutorials/all | jq
+
+--- Respuesta
+< HTTP/1.1 201
+< Content-Type: application/json
+<
+[
+  {
+    "id": 6,
+    "title": "Curso de Angular"
+  },
+  {
+    "id": 7,
+    "title": "Curso de TypeScript"
+  },
+  {
+    "id": 8,
+    "title": "Kubernetes"
+  }
+]
+````
+
+````roomsql
+INSERT INTO `tutorials` (`title`) VALUES (?)
+-- Setting SQL statement parameter value: column index 1, parameter value [Curso de Angular], value class [java.lang.String], SQL type 12
+-- Setting SQL statement parameter value: column index 1, parameter value [Curso de Angular], value class [java.lang.String], SQL type 12
+-- Setting SQL statement parameter value: column index 1, parameter value [Curso de TypeScript], value class [java.lang.String], SQL type 12
+--  Setting SQL statement parameter value: column index 1, parameter value [Kubernetes], value class [java.lang.String], SQL type 12
+````
+
+- Actualizar todos los datos de un tutorial
+
+````bash
+curl -v -X PUT -H "Content-Type: application/json" -d "{\"title\": \"Curso SASS\"}" http://localhost:8080/api/v1/tutorials/7 | jq
+
+--- Respuesta
+>
+} [23 bytes data]
+< HTTP/1.1 200
+<
+{
+  "id": 7,
+  "title": "Curso SASS"
+}
+````
+
+````roomsql
+SELECT `tutorials`.`id` AS `id`, `tutorials`.`title` AS `title` 
+FROM `tutorials` 
+WHERE `tutorials`.`id` = ?
+-- Setting SQL statement parameter value: column index 1, parameter value [7], value class [java.lang.Integer], SQL type 4
+
+
+````
+
+````roomsql
+UPDATE `tutorials` 
+    SET `title` = ? 
+WHERE `tutorials`.`id` = ?
+-- Setting SQL statement parameter value: column index 1, parameter value [Curso SASS], value class [java.lang.String], SQL type 12
+-- Setting SQL statement parameter value: column index 2, parameter value [7], value class [java.lang.Integer], SQL type 4
+````
+
+- Actualizar algunos datos de un tutorial
+
+````bash
+curl -v -X PATCH -H "Content-Type: application/json" -d "{\"title\": \"Angular v16 Signals\"}" http://localhost:8080/api/v1/tutorials/6 | jq
+
+--- Respuesta
+>
+< HTTP/1.1 200
+<
+{
+  "id": 6,
+  "title": "Angular v16 Signals"
+}
+````
+
+````roomsql
+SELECT `tutorials`.`id` AS `id`, `tutorials`.`title` AS `title` 
+FROM `tutorials` 
+WHERE `tutorials`.`id` = ?
+-- Setting SQL statement parameter value: column index 1, parameter value [6], value class [java.lang.Integer], SQL type 4
+````
+
+````roomsql
+UPDATE `tutorials` 
+    SET `title` = ? 
+WHERE `tutorials`.`id` = ?
+-- Setting SQL statement parameter value: column index 1, parameter value [Angular v16 Signals], value class [java.lang.String], SQL type 12
+-- Setting SQL statement parameter value: column index 2, parameter value [6], value class [java.lang.Integer], SQL type 4
+````
+
+- Elimina un tutorial
+
+````bash
+curl -v -X DELETE http://localhost:8080/api/v1/tutorials/6 | jq
+
+--- Respuesta
+>
+< HTTP/1.1 204
+````
+
+````roomsql
+SELECT `tutorials`.`id` AS `id`, `tutorials`.`title` AS `title` 
+FROM `tutorials` 
+WHERE `tutorials`.`id` = ?
+-- Setting SQL statement parameter value: column index 1, parameter value [6], value class [java.lang.Integer], SQL type 4
+````
+
+````roomsql
+DELETE FROM `tutorials` 
+WHERE `tutorials`.`id` = ?
+-- Setting SQL statement parameter value: column index 1, parameter value [6], value class [java.lang.Integer], SQL type 4
+````
+
+- Elimina todos los tutoriales
+
+````bash
+curl -v -X DELETE http://localhost:8080/api/v1/tutorials | jq
+
+--- Respuesta
+>
+< HTTP/1.1 204
+<
+````
+
+````roomsql
+DELETE FROM `tutorials`
+````
+
+## CRUD API Relación One-to-One entre owners y addresses
+
+En este apartado trabajaremos sobre las tablas `owners` y `addresses` de la base de datos que están relacionados de
+`One-to-One`. Recordemos que anteriormente ya habíamos trabajado estas tablas quienes están mapeadas a las entidades
+`Owner` y `Address` respectivamente. Veamos cómo tenemos las tablas a nivel de base de datos:
+
+![owners y addresses relación one to one](./assets/owners-addresses-one-to-one.png)
+
+Como observamos no solo tenemos la relación de `One-to-One` entre las tablas `owners` y `addresses`, también está la
+tabla `tasks` relacionándose con la tabla `owners`, aunque en este apartado no trabajamos con la tabla `tasks` es
+importante considerarlo en el diagrama, solo para tener una idea visual, ya que puede influir cuando se haga
+eliminaciones de los `ownres` de esa manera sabremos por qué podría estar fallando la eliminación cuando nos lance un
+error de **constraint**.
+
+A continuación se muestra la implementación completa de la clase de servicio **OwnerService**. Recordemos que
+anteriormente ya habíamos trabajado con estas entidades, pero solo para la lectura de los registros:
+
+````java
+
+@RequiredArgsConstructor
+@Service
+public class OwnerService {
+    private final IOwnerRepository ownerRepository;
+
+    @Transactional(readOnly = true)
+    public List<Owner> getAllOwners() {
+        return this.ownerRepository.findAll();
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<Owner> getOwner(Integer id) {
+        return this.ownerRepository.findById(id);
+    }
+
+    @Transactional
+    public Owner createOwner(Owner owner) {
+        return this.ownerRepository.save(owner);
+    }
+
+    @Transactional
+    public List<Owner> createListOwners(List<Owner> owner) {
+        return this.ownerRepository.saveAll(owner);
+    }
+
+    @Transactional
+    public Optional<Owner> updateOwner(Integer id, Owner owner) {
+        return this.ownerRepository.findById(id)
+                .map(ownerDB -> {
+                    ownerDB.setFullName(owner.getFullName());
+                    ownerDB.setEmail(owner.getEmail());
+                    ownerDB.setUsername(owner.getUsername());
+                    ownerDB.setAddress(owner.getAddress());
+                    return this.ownerRepository.save(ownerDB);
+                });
+    }
+
+    @Transactional
+    public Optional<Owner> patchOwner(Integer id, Owner owner) {
+        return this.ownerRepository.findById(id)
+                .map(ownerDB -> {
+                    ownerDB.setEmail(owner.getEmail());
+                    return this.ownerRepository.save(ownerDB);
+                });
+    }
+
+    @Transactional
+    public Optional<Boolean> deleteOwner(Integer id) {
+        return this.ownerRepository.findById(id)
+                .map(ownerDB -> {
+                    this.ownerRepository.deleteById(id);
+                    return true;
+                });
+    }
+
+    @Transactional
+    public void deleteAllOwners() {
+        this.ownerRepository.deleteAll();
+    }
+}
+````
+
+De la misma manera, se muestra a continuación la implementación completa del controlador **OwnerController**:
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/owners")
+public class OwnerController {
+
+    private final OwnerService ownerService;
+    private final TaskService taskService;
+
+    @GetMapping
+    public ResponseEntity<List<Owner>> getOwners() {
+        return ResponseEntity.ok(this.ownerService.getAllOwners());
+    }
+
+    @GetMapping(path = "/{id}")
+    public ResponseEntity<Owner> getOwner(@PathVariable Integer id) {
+        return this.ownerService.getOwner(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @GetMapping(path = "/{id}/details")
+    public ResponseEntity<OwnerDetails> getOwnerDetails(@PathVariable Integer id) {
+        return this.ownerService.getOwner(id)
+                .map(ownerDB -> {
+                    List<Task> tasks = this.taskService.findAllByOwner(id);
+                    return ResponseEntity.ok(new OwnerDetails(ownerDB, tasks));
+                })
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PostMapping
+    public ResponseEntity<Owner> createOwner(@RequestBody Owner owner) {
+        Owner ownerDB = this.ownerService.createOwner(owner);
+        URI uriOwner = URI.create("/api/v1/owners/" + ownerDB.getId());
+        return ResponseEntity.created(uriOwner).body(ownerDB);
+    }
+
+    @PostMapping(path = "/all")
+    public ResponseEntity<List<Owner>> createListOwners(@RequestBody List<Owner> owners) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(this.ownerService.createListOwners(owners));
+    }
+
+    @PutMapping(path = "/{id}")
+    public ResponseEntity<Owner> updateOwner(@PathVariable Integer id, @RequestBody Owner owner) {
+        return this.ownerService.updateOwner(id, owner)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PatchMapping(path = "/{id}")
+    public ResponseEntity<Owner> patchOwner(@PathVariable Integer id, @RequestBody Owner owner) {
+        return this.ownerService.patchOwner(id, owner)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping(path = "/{id}")
+    public ResponseEntity<Void> deleteOwner(@PathVariable Integer id) {
+        return this.ownerService.deleteOwner(id)
+                .map(wasDeleted -> new ResponseEntity<Void>(HttpStatus.NO_CONTENT))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping
+    public ResponseEntity<Void> deleteAllOwners() {
+        this.ownerService.deleteAllOwners();
+        return ResponseEntity.noContent().build();
+    }
+
+}
+````
+
+Probamos los endpoints implementados:
+
+- Crear un owner:
+
+````bash
+curl -v -X POST -H "Content-Type: application/json" -d "{\"fullName\": \"Rosa Maria\", \"email\":\"rosa@gmail.com\", \"username\":\"rosita\", \"address\": {\"addressLine\": \"Cajamarca City\"}}" http://localhost:8080/api/v1/owners | jq
+
+>
+< HTTP/1.1 201
+< Location: /api/v1/owners/21
+< Content-Type: application/json
+<
+{
+  "id": 21,
+  "fullName": "Rosa Maria",
+  "email": "rosa@gmail.com",
+  "username": "rosita",
+  "address": {
+    "id": 3,
+    "addressLine": "Cajamarca City"
+  }
+}
+````
+
+````roomsql
+INSERT INTO `owners` (`email`, `full_name`, `username`) VALUES (?, ?, ?)
+--column index 1, parameter value [rosa@gmail.com], value class [java.lang.String]
+--column index 2, parameter value [Rosa Maria], value class [java.lang.String]
+--column index 3, parameter value [rosita], value class [java.lang.String]
+````
+
+````roomsql
+INSERT INTO `addresses` (`address_line`, `owner_id`) VALUES (?, ?)
+--column index 1, parameter value [Cajamarca City], value class [java.lang.String]
+--column index 2, parameter value [21], value class [java.lang.Integer]
+````
+
+- Crear una lista de owners:
+
+````bash
+curl -v -X POST -H "Content-Type: application/json" -d "[{\"fullName\": \"Rosa Maria\", \"email\":\"rosa@gmail.com\", \"username\":\"rosita\", \"address\": {\"addressLine\": \"Cajamarca City\"}}, {\"fullName\": \"Rosa Milagros\", \"email\":\"rosilla@gmail.com\", \"username\":\"rosi\", \"address\": {\"addressLine\": \"Chimbote\"}}]" http://localhost:8080/api/v1/owners/all | jq
+
+>
+< HTTP/1.1 201
+< Content-Type: application/json
+<
+[
+  {
+    "id": 22,
+    "fullName": "Rosa Maria",
+    "email": "rosa@gmail.com",
+    "username": "rosita",
+    "address": {
+      "id": 4,
+      "addressLine": "Cajamarca City"
+    }
+  },
+  {
+    "id": 23,
+    "fullName": "Rosa Milagros",
+    "email": "rosilla@gmail.com",
+    "username": "rosi",
+    "address": {
+      "id": 5,
+      "addressLine": "Chimbote"
+    }
+  }
+]
+````
+
+- Actualizar un owner:
+
+````bash
+curl -v -X PUT -H "Content-Type: application/json" -d "{\"fullName\": \"Vicky\", \"email\":\"vicky@gmail.com\", \"username\":\"vicky\", \"address\": {\"addressLine\": \"Espana\"}}" http://localhost:8080/api/v1/owners/22 | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "id": 22,
+  "fullName": "Vicky",
+  "email": "vicky@gmail.com",
+  "username": "vicky",
+  "address": {
+    "id": 6,
+    "addressLine": "Espana"
+  }
+}
+````
+
+- Actualizar parcialmente un dato del owner:
+
+````bash
+curl -v -X PATCH -H "Content-Type: application/json" -d "{\"email\":\"vicky_es@gmail.com\"}" http://localhost:8080/api/v1/owners/22 | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "id": 22,
+  "fullName": "Vicky",
+  "email": "vicky_es@gmail.com",
+  "username": "vicky",
+  "address": {
+    "id": 6,
+    "addressLine": "Espana"
+  }
+}
+````
+
+- Eliminar un owner
+
+````bash
+curl -v -X DELETE http://localhost:8080/api/v1/owners/22 | jq
+
+>
+< HTTP/1.1 204
+````
+
+````roomsql
+SELECT `owners`.`id` AS `id`, `owners`.`email` AS `email`, `owners`.`full_name` AS `full_name`, `owners`.`username` AS `username`, `address`.`id` AS `address_id`, `address`.`address_line` AS `address_address_line` 
+FROM `owners` 
+    LEFT OUTER JOIN `addresses` `address` ON `address`.`owner_id` = `owners`.`id` 
+WHERE `owners`.`id` = ?
+--column index 1, parameter value [22], value class [java.lang.Integer]
+````
+
+````sql
+SELECT `owners`.`id` FROM `owners` WHERE `owners`.`id` = ? FOR UPDATE
+column index 1, parameter value [22], value class [java.lang.Integer]
+````
+
+````roomsql
+DELETE FROM `addresses` WHERE `addresses`.`owner_id` = ?
+--column index 1, parameter value [22], value class [java.lang.Integer]
+````
+
+````roomsql
+DELETE FROM `owners` WHERE `owners`.`id` = ?
+--column index 1, parameter value [22], value class [java.lang.Integer]
+````
+
+- Eliminar todos los owners
+
+````bash
+curl -v -X DELETE http://localhost:8080/api/v1/owners | jq
+
+>
+< HTTP/1.1 500
+<
+{
+  "timestamp": "2023-08-28T18:25:30.663+00:00",
+  "status": 500,
+  "error": "Internal Server Error",
+  "path": "/api/v1/owners"
+}
+````
+
+````bash
+java.sql.SQLIntegrityConstraintViolationException: 
+Cannot delete or update a parent row: 
+a foreign key constraint fails (`db_spring_data_jdbc`.`tasks`, 
+  CONSTRAINT `fk_owners_tasks` FOREIGN KEY (`owner_id`) REFERENCES `owners` (`id`))
+````
+
+Como observamos, la eliminación de todos los owners nos está fallando, eso ocurre porque en la tercera tabla relacionada
+con `owners`, me refiero a la tabla `tasks` tiene referencias (FK) a esa tabla, por lo tanto, ocurre el error de
+constraint, no podemos eliminar registros de la tabla `owners` mientras la tabla `tasks` las tenga referenciadas.
+Pero en sí, el endpoint funcionaría si no hubiera referencias de owners en tasks.
+
+## CRUD API Relación One-to-Many entre owners y tasks
+
+En este apartado veremos cómo crear registros en la base de datos cuando dos entidades son **aggregate roots** y tienen
+una relación de `One-to-Many`. Recordemos un poco, tenemos la entidad `Owner` y `Task`, ambos son `aggregate roots` de
+sus respectivos agregados y lo que hicimos para poder relacionar ambos agregados en una relación del tipo `One-to-Many`,
+fue utilizar la interfaz `AggregateReference` dentro de `Task`, luego cuando consultábamos directamente por la lista
+de tasks o un task en específico, lo que obteníamos era información del **task**, información del **comment** y ahora
+información del **owner id**, por ejemplo, algo similar a cómo se muestra a continuación:
+
+````json
+{
+  "id": 30,
+  "title": "Pintado fachada",
+  "content": "Trabajamos para remodelar fachada",
+  "publishedOn": "2023-08-28T19:58:39",
+  "updatedOn": "2023-08-28T19:58:39",
+  "comments": [
+    {
+      "id": 4,
+      "name": "Karen",
+      "content": "Colores suaves sería genial",
+      "publishedOn": "2023-08-28T19:58:39",
+      "updatedOn": "2023-08-28T19:58:39"
+    }
+  ],
+  "owner": {
+    "id": 10
+  }
+}
+````
+
+Recordemos también que decíamos que obtener el **owner id** era suficiente en algunos casos, pero luego nosotros
+creamos DTO's para poder obtener la información completa de ambos agregados.
+
+### Creando un Task
+
+Entonces, **¿Cómo podemos guardar un registro de un Task si está relacionado con un Owner?** lo primero que debemos
+hacer es crear un DTO llamado **TaskCreate** con el que enviaremos información desde el cliente y luego utilizando la
+clase de servicio crearemos un objeto Task para poder persistirlo, veamos cómo:
+
+````java
+public record TaskCreate(Integer ownerId, String title, String content) {
+}
+````
+
+El record anterior contiene información que será pasada desde el cliente, aunque falta información como el
+**publishedOn**, **updatedOn**, **comments**. No nos preocupemos por esa información, ya que será completada en la
+clase de servicio. Con respecto a cómo agregar **comments**, eso lo veremos más adelante.
+
+````java
+
+@RequiredArgsConstructor
+@Service
+public class TaskService {
+
+    /* other methods*/
+
+    @Transactional
+    public Task createTask(TaskCreate taskCreate) {
+        Task newTask = Task.builder()
+                .title(taskCreate.title())
+                .content(taskCreate.content())
+                .publishedOn(LocalDateTime.now())
+                .owner(AggregateReference.to(taskCreate.ownerId())) // (1)
+                .build();
+        return this.taskRepository.save(newTask);
+    }
+}
+````
+
+Es importante observar **(1)** cómo creamos un `AggregateReference` el cual es pasado al atributo `owner` de la clase
+Task, ese atributo hace referencia a la llave foránea `owner_id`.
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/tasks")
+public class TaskController {
+
+    /* other code */
+
+    @PostMapping
+    public ResponseEntity<Task> createTask(@RequestBody TaskCreate taskCreate) {
+        Task taskDB = this.taskService.createTask(taskCreate);
+        URI uriTask = URI.create("/api/v1/tasks/" + taskDB.getId());
+        return ResponseEntity.created(uriTask).body(taskDB);
+    }
+
+}
+````
+
+Listo, hasta este punto probaremos crear el registro para un Task:
+
+````bash
+curl -v -X POST -H "Content-Type: application/json" -d "{\"title\": \"Crear maceteros\", \"content\": \"Tarea por completar\", \"ownerId\": 20}" http://localhost:8080/api/v1/tasks | jq
+
+
+>
+< HTTP/1.1 201
+< Location: /api/v1/tasks/41
+<
+{
+  "id": 41,
+  "title": "Crear maceteros",
+  "content": "Tarea por completar",
+  "publishedOn": "2023-08-28T20:17:09.2533282",
+  "updatedOn": null,
+  "comments": null,
+  "owner": {
+    "id": 20
+  }
+}
+````
+
+Las consultas generadas en consola:
+
+````roomsql
+INSERT INTO `tasks` (`content`, `owner_id`, `published_on`, `title`, `updated_on`) VALUES (?, ?, ?, ?, ?)
+--column index 1, parameter value [Tarea por completar], value class [java.lang.String]
+--column index 2, parameter value [20], value class [java.lang.Integer]
+--column index 3, parameter value [2023-08-28T20:17:09.253328200], value class [java.time.LocalDateTime]
+--column index 4, parameter value [Crear maceteros], value class [java.lang.String]
+--column index 5, parameter value [null], value class [null]
+````
+
+El registro fue exitoso, acabamos de registrar un `Task` para el `Owner` con id = 20.
+
+### Registrando los comments para un Task
+
+Como observamos en el resultado anterior, cuando creamos un registro para un Task lo creamos sin comentarios. En este
+apartado veremos cómo agregar comentarios a un Task utilizando los métodos que creamos desde un inicio en nuestra
+entidad `Task`, esos métodos son los que a continuación muestro:
+
+````java
+
+@Data
+@Builder
+@Table(name = "tasks")
+public class Task {
+    /* omitted code */
+    public void addComment(Comment comment) {
+        this.comments.add(comment);
+    }
+
+    public void removeComment(Comment comment) {
+        this.comments.remove(comment);
+    }
+}
+````
+
+El siguiente paso sería crear un DTO llamado `CommentUpdate`, cuya información será enviada desde el cliente:
+
+````java
+public record CommentUpdate(String name, String content) {
+}
+````
+
+Ahora, en la clase de servicio creamos un método que nos permita agregar un `Comment` a un `Task`:
+
+````java
+
+@RequiredArgsConstructor
+@Service
+public class TaskService {
+    /* omitted code*/
+
+    @Transactional
+    public Optional<Task> taskAddComment(Integer id, CommentUpdate commentUpdate) {
+        return this.taskRepository.findById(id)
+                .map(taskDB -> {
+                    Comment newComment = Comment.builder()
+                            .name(commentUpdate.name())
+                            .content(commentUpdate.content())
+                            .publishedOn(LocalDateTime.now())
+                            .build();
+                    taskDB.addComment(newComment);
+                    return this.taskRepository.save(taskDB);
+                });
+    }
+}
+````
+
+Lo mismo hacemos en el controlador, creamos un endpoint que será exclusivo para poder agregar comentarios a un task en
+específico:
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/tasks")
+public class TaskController {
+
+    /* omitted code */
+
+    @PostMapping(path = "/{id}/comment")
+    public ResponseEntity<Task> taskAddComment(@PathVariable Integer id, @RequestBody CommentUpdate comment) {
+        return this.taskService.taskAddComment(id, comment)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+}
+````
+
+Finalmente, probamos agregar comentario a un Task:
+
+````bash
+curl -v -X POST -H "Content-Type: application/json" -d "{\"name\": \"verduras\", \"content\": \"Solo comprar verduras\"}" http://localhost:8080/api/v1/tasks/40/comment | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "id": 40,
+  "title": "Compra mercado",
+  "content": "Compras del mes",
+  "publishedOn": "2023-08-28T22:47:02",
+  "updatedOn": "2023-08-28T22:47:02",
+  "comments": [
+    {
+      "id": 5,
+      "name": "verduras",
+      "content": "Solo comprar verduras",
+      "publishedOn": "2023-08-28T22:47:32.852101",
+      "updatedOn": null
+    }
+  ],
+  "owner": {
+    "id": 10
+  }
+}
+````
+
+Volvemos a insertar otro comentario:
+
+````bash
+curl -v -X POST -H "Content-Type: application/json" -d "{\"name\": \"Fiesta infantil\", \"content\": \"Comprar golosinas\"}" http://localhost:8080/api/v1/tasks/40/comment | jq
+
+
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "id": 40,
+  "title": "Compra mercado",
+  "content": "Compras del mes",
+  "publishedOn": "2023-08-28T22:47:02",
+  "updatedOn": "2023-08-28T22:47:02",
+  "comments": [
+    {
+      "id": 5,
+      "name": "verduras",
+      "content": "Solo comprar verduras",
+      "publishedOn": "2023-08-28T22:47:33",
+      "updatedOn": null
+    },
+    {
+      "id": 6,
+      "name": "Fiesta infantil",
+      "content": "Comprar golosinas",
+      "publishedOn": "2023-08-28T22:54:09.1338213",
+      "updatedOn": null
+    }
+  ],
+  "owner": {
+    "id": 10
+  }
+````
+
+### Actualizando un Task
+
+Anteriormente, vimos cómo crear un **Task**, para eso nos apoyamos en el **record** `TaskCreate`. En este apartado
+implementaremos la actualización de un **Task** apoyándonos nuevamente de otro **record** `TaskUpdate`:
+
+````java
+public record TaskCreate(Integer ownerId, String title, String content) {
+}
+````
+
+En nuestra clase de servicio creamos un método para actualizar el task:
+
+````java
+
+@RequiredArgsConstructor
+@Service
+public class TaskService {
+
+    /* omitted code */
+
+    @Transactional
+    public Optional<Task> updateTask(Integer id, TaskUpdate taskUpdate) {
+        return this.taskRepository.findById(id)
+                .map(taskDB -> {
+
+                    taskDB.setTitle(taskUpdate.title());
+                    taskDB.setContent(taskUpdate.content());
+                    taskDB.setUpdatedOn(LocalDateTime.now());
+                    taskDB.setOwner(AggregateReference.to(taskUpdate.ownerId()));
+                    taskDB.setComments(taskUpdate.comments());
+
+                    return this.taskRepository.save(taskDB);
+                });
+    }
+}
+````
+
+Finalmente, en nuestra clase de controlador implementamos el endpoint para actualizar el task:
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/tasks")
+public class TaskController {
+    /* omitted code */
+
+    @PutMapping(path = "/{id}")
+    public ResponseEntity<Task> updateTask(@PathVariable Integer id, @RequestBody TaskUpdate taskUpdate) {
+        return this.taskService.updateTask(id, taskUpdate)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+}
+````
+
+Probamos el endpoint actualizando un task existente en la base de datos:
+
+````bash
+curl -v -X PUT -H "Content-Type: application/json" -d "{\"title\": \"Mi nuevo Task\", \"content\": \"Probando actualizacion\", \"ownerId\": 10, \"comments\": [{\"name\": \"Comentario 01\", \"content\": \"Mi comentario 01\", \"publishedOn\": \"2023-08-28T23:18:20\", \"updatedOn\": \"2023-08-28T23:18:20\"}, {\"name\": \"Comentario 02\", \"content\": \"Mi comentario 02\", \"publishedOn\": \"2023-08-28T22:18:20\", \"updatedOn\": \"2023-08-28T22:18:20\"}]}" http://localhost:8080/api/v1/tasks/40 | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "id": 40,
+  "title": "Mi nuevo Task",
+  "content": "Probando actualizacion",
+  "publishedOn": "2023-08-29T00:11:21",
+  "updatedOn": "2023-08-29T00:15:15.3550109",
+  "comments": [
+    {
+      "id": 5,
+      "name": "Comentario 01",
+      "content": "Mi comentario 01",
+      "publishedOn": "2023-08-28T23:18:20",
+      "updatedOn": "2023-08-28T23:18:20"
+    },
+    {
+      "id": 6,
+      "name": "Comentario 02",
+      "content": "Mi comentario 02",
+      "publishedOn": "2023-08-28T22:18:20",
+      "updatedOn": "2023-08-28T22:18:20"
+    }
+  ],
+  "owner": {
+    "id": 10
+  }
+}
+````
+
+### Eliminando un Task
+
+Eliminar un Task es más sencillo, primero empecemos creando el método en la clase de servicio:
+
+````java
+
+@RequiredArgsConstructor
+@Service
+public class TaskService {
+
+    /* omitted code */
+
+    @Transactional
+    public Optional<Boolean> deleteTask(Integer id) {
+        return this.taskRepository.findById(id)
+                .map(taskDB -> {
+                    this.taskRepository.deleteById(id);
+                    return true;
+                });
+    }
+}
+````
+
+Ahora implementemos el endpoint para eliminar un task:
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/tasks")
+public class TaskController {
+
+    /* omitted code */
+
+    @DeleteMapping(path = "/{id}")
+    public ResponseEntity<Void> deleteTask(@PathVariable Integer id) {
+        return this.taskService.deleteTask(id)
+                .map(wasDeleted -> new ResponseEntity<Void>(HttpStatus.NO_CONTENT))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+}
+````
+
+Levantamos el proyecto y probamos la funcionalidad de eliminar un task:
+
+````bash
+curl -v -X DELETE http://localhost:8080/api/v1/tasks/40 | jq
+
+>
+< HTTP/1.1 204
+````
+
+## CRUD API Relación Many-to-Many entre users y authorities
+
+Recordemos cómo tenemos relacionados las tablas `users` y `authorities` en la base de datos, vemos que le agregamos una
+tabla intermedia en la relación:
+
+![user-authorities-db](./assets/users_authorities-mysql.png)
+
+### Trabajando con la entidad Authority
+
+Observemos cómo tenemos nuestra clase de entidad `Authority`:
+
+````java
+
+@Data
+@Builder
+@Table(name = "authorities")
+public class Authority {
+    @Id
+    private Integer id;
+    private String authority;
+}
+````
+
+Como vemos, nuestra entidad `Authority` se presta para crearle directamente su CRUD sin problema alguno, así que
+empezaremos con la clase de servicio implementando sus métodos:
+
+````java
+
+@RequiredArgsConstructor
+@Service
+public class AuthorityService {
+
+    /* omitted properties */
+
+    @Transactional(readOnly = true)
+    public List<Authority> getAuthorities() {
+        return this.authorityRepository.findAll();
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<Authority> getAuthority(Integer id) {
+        return this.authorityRepository.findById(id);
+    }
+
+    @Transactional
+    public Authority createAuthority(Authority authority) {
+        return this.authorityRepository.save(authority);
+    }
+
+    @Transactional
+    public Optional<Authority> updateAuthority(Integer id, Authority authority) {
+        return this.authorityRepository.findById(id)
+                .map(authorityDB -> {
+                    authorityDB.setAuthority(authority.getAuthority());
+                    return this.authorityRepository.save(authorityDB);
+                });
+    }
+
+    @Transactional
+    public Optional<Boolean> deleteAuthority(Integer id) {
+        return this.authorityRepository.findById(id)
+                .map(authorityDB -> {
+                    this.authorityRepository.deleteById(authorityDB.getId());
+                    return true;
+                });
+    }
+
+    /* omitted method getAuthorityDetails(...) */
+}
+````
+
+Llegados a este punto toca implementar los enpoints del CRUD en la clase controladora:
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/authorities")
+public class AuthorityController {
+
+    /* omitted property */
+
+    @GetMapping
+    public ResponseEntity<List<Authority>> getAllAuthorities() {
+        return ResponseEntity.ok(this.authorityService.getAuthorities());
+    }
+
+    @GetMapping(path = "/{id}")
+    public ResponseEntity<Authority> getAuthority(@PathVariable Integer id) {
+        return this.authorityService.getAuthority(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PostMapping
+    public ResponseEntity<Authority> createAuthority(@RequestBody Authority authority) {
+        Authority authorityDB = this.authorityService.createAuthority(authority);
+        URI uriAuthority = URI.create("/api/v1/authorities" + authorityDB.getId());
+        return ResponseEntity.created(uriAuthority).body(authorityDB);
+    }
+
+    @PutMapping(path = "/{id}")
+    public ResponseEntity<Authority> updateAuthority(@PathVariable Integer id, @RequestBody Authority authority) {
+        return this.authorityService.updateAuthority(id, authority)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping(path = "/{id}")
+    public ResponseEntity<Void> deleteAuthority(@PathVariable Integer id) {
+        return this.authorityService.deleteAuthority(id)
+                .map(wasDeleted -> new ResponseEntity<Void>(HttpStatus.NO_CONTENT))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /* omitted endpoint /{id}/details */
+}
+````
+
+Probando CRUD para la tabla `authorities`:
+
+- Listando los authorities:
+
+````bash
+curl -v http://localhost:8080/api/v1/authorities | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+[
+  {
+    "id": 3,
+    "authority": "ROLE_USER"
+  },
+  {
+    "id": 5,
+    "authority": "ROLE_ADMIN"
+  },
+  {
+    "id": 7,
+    "authority": "ROLE_DEVELOPER"
+  }
+]
+````
+
+````roomsql
+SELECT `authorities`.`id` AS `id`, `authorities`.`authority` AS `authority` 
+FROM `authorities`
+````
+
+- Ver un authority:
+
+````bash
+curl -v http://localhost:8080/api/v1/authorities/3 | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "id": 3,
+  "authority": "ROLE_USER"
+}
+````
+
+````roomsql
+SELECT `authorities`.`id` AS `id`, `authorities`.`authority` AS `authority` 
+FROM `authorities` 
+WHERE `authorities`.`id` = ?
+--column index 1, parameter value [3], value class [java.lang.Integer]
+````
+
+- Guardar un authority:
+
+````bash
+curl -v -X POST -H "Content-Type: application/json" -d "{\"authority\": \"ROLE_TESTER\"}" http://localhost:8080/api/v1/authorities | jq
+
+>
+< HTTP/1.1 201
+< Location: /api/v1/authorities8
+< Content-Type: application/json
+<
+{
+  "id": 8,
+  "authority": "ROLE_TESTER"
+}
+````
+
+````roomsql
+INSERT INTO `authorities` (`authority`) VALUES (?)
+---column index 1, parameter value [ROLE_TESTER], value class [java.lang.String]
+````
+
+- Actualizar un authority:
+
+````bash
+curl -v -X PUT -H "Content-Type: application/json" -d "{\"authority\": \"ROLE_TESTER_UPDATE\"}" http://localhost:8080/api/v1/authorities/8 | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "id": 8,
+  "authority": "ROLE_TESTER_UPDATE"
+}
+````
+
+````roomsql
+SELECT `authorities`.`id` AS `id`, `authorities`.`authority` AS `authority` 
+FROM `authorities` 
+WHERE `authorities`.`id` = ?
+--column index 1, parameter value [8], value class [java.lang.Integer]
+````
+
+````roomsql
+UPDATE `authorities` 
+SET `authority` = ? 
+WHERE `authorities`.`id` = ?
+--column index 1, parameter value [ROLE_TESTER_UPDATE], value class [java.lang.String]
+--column index 2, parameter value [8], value class [java.lang.Integer]
+````
+
+- Eliminar un authority:
+
+````bash
+curl -v -X DELETE http://localhost:8080/api/v1/authorities/8 | jq
+
+>
+< HTTP/1.1 204
+````
+
+````roomsql
+SELECT `authorities`.`id` AS `id`, `authorities`.`authority` AS `authority` 
+FROM `authorities` 
+WHERE `authorities`.`id` = ?
+--column index 1, parameter value [8], value class [java.lang.Integer]
+````
+
+````roomsql
+DELETE FROM `authorities` WHERE `authorities`.`id` = ?
+--column index 1, parameter value [8], value class [java.lang.Integer]
+````
+
+**IMPORTANTE**
+> En este punto, si se intenta eliminar un Authority que está siendo usando por la relación nos arrojará un error de
+> constraint: `Cannot delete or update a parent row: a foreign key constraint fails
+> (db_spring_data_jdbc.users_authorities, CONSTRAINT fk_authorities__users_authorities FOREIGN KEY (authority_id)
+> REFERENCES authorities (id))`
+
+### Trabajando con la entidad User
+
+Veamos cómo está conformado nuestra entidad `User`, observaremos que le agregamos dos métodos para poder agregar
+y eliminar authorities:
+
+````java
+
+@Data
+@Builder
+@Table(name = "users")
+public class User {
+    @Id
+    private Integer id;
+    private String username;
+    private String password;
+    @Column(value = "account_non_expired")
+    private Boolean accountNonExpired;
+    private Boolean accountNonLocked;
+    private Boolean credentialsNonExpired;
+    private Boolean enabled;
+    private String firstName;
+    private String lastName;
+    private String emailAddress;
+    private LocalDate birthdate;
+
+    @JsonIgnore
+    @MappedCollection(idColumn = "user_id")
+    private Set<AuthorityRef> authorities = new HashSet<>();
+
+    public void addAuthority(Authority authority) {
+        AuthorityRef authorityRef = new AuthorityRef();
+        authorityRef.setAuthorityId(authority.getId());
+        this.authorities.add(authorityRef);
+    }
+
+    public void removeAuthority(Authority authority) {
+        AuthorityRef authorityRef = new AuthorityRef();
+        authorityRef.setAuthorityId(authority.getId());
+        this.authorities.remove(authorityRef);
+    }
+}
+````
+
+El siguiente paso es definir los métodos restantes en el servicio `UserService`:
+
+````java
+
+@RequiredArgsConstructor
+@Service
+public class UserService {
+
+    /* omitted code */
+
+    @Transactional(readOnly = true)
+    public Optional<User> getUser(Integer id) {
+        return this.userRepository.findById(id);
+    }
+
+    @Transactional
+    public User createUser(User user) {
+        return this.userRepository.save(user);
+    }
+
+    @Transactional
+    public Optional<User> updateUser(Integer id, User user) {
+        return this.userRepository.findById(id)
+                .map(userDB -> {
+                    userDB.setUsername(user.getUsername());
+                    userDB.setPassword(user.getPassword());
+                    userDB.setAccountNonExpired(user.getAccountNonExpired());
+                    userDB.setAccountNonLocked(user.getAccountNonLocked());
+                    userDB.setCredentialsNonExpired(user.getCredentialsNonExpired());
+                    userDB.setEnabled(user.getEnabled());
+                    userDB.setFirstName(user.getFirstName());
+                    userDB.setLastName(user.getLastName());
+                    userDB.setEmailAddress(user.getEmailAddress());
+                    userDB.setBirthdate(user.getBirthdate());
+                    return this.userRepository.save(userDB);
+                });
+    }
+
+    @Transactional
+    public Optional<Boolean> deleteUser(Integer id) {
+        return this.userRepository.findById(id)
+                .map(userDB -> {
+                    this.userRepository.deleteById(id);
+                    return true;
+                });
+    }
+
+    @Transactional
+    public Optional<UserDetails> addAuthority(Integer id, Authority authority) {
+        return this.userRepository.findById(id)
+                .map(userDB -> {
+                    userDB.addAuthority(authority);
+                    User userSaved = this.userRepository.save(userDB);
+                    List<Authority> authorities = this.authorityRepository.findAllAuthoritiesByUserId(userDB.getId());
+                    return new UserDetails(userSaved, authorities);
+                });
+    }
+
+    @Transactional
+    public Optional<UserDetails> removeAuthority(Integer id, Authority authority) {
+        return this.userRepository.findById(id)
+                .map(userDB -> {
+                    userDB.removeAuthority(authority);
+                    User userSaved = this.userRepository.save(userDB);
+                    List<Authority> authorities = this.authorityRepository.findAllAuthoritiesByUserId(userDB.getId());
+                    return new UserDetails(userSaved, authorities);
+                });
+    }
+
+    /* omitted code */
+}
+````
+
+Es importante observar que cuando agregamos o eliminamos un Authority a un User lo que nos retorna el método es un
+`UserDetails` conteniendo tanto el `User` como una lista de `Authority`.
+
+Finalmente, queda implementar el controlador `UserController`:
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/users")
+public class UserController {
+
+    /* omitted code */
+
+    @GetMapping(path = "/{id}")
+    public ResponseEntity<User> getUser(@PathVariable Integer id) {
+        return this.userService.getUser(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PostMapping
+    public ResponseEntity<User> createUser(@RequestBody User user) {
+        User userDB = this.userService.createUser(user);
+        URI uriUser = URI.create("/api/v1/users" + userDB.getId());
+        return ResponseEntity.created(uriUser).body(userDB);
+    }
+
+    @PutMapping(path = "/{id}")
+    public ResponseEntity<User> updateUser(@PathVariable Integer id, @RequestBody User user) {
+        return this.userService.updateUser(id, user)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping(path = "/{id}")
+    public ResponseEntity<Void> deleteUser(@PathVariable Integer id) {
+        return this.userService.deleteUser(id)
+                .map(wasDeleted -> new ResponseEntity<Void>(HttpStatus.NO_CONTENT))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PutMapping(path = "/{id}/add-authority")
+    public ResponseEntity<UserDetails> addAuthority(@PathVariable Integer id, @RequestBody Authority authority) {
+        return this.userService.addAuthority(id, authority)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PutMapping(path = "/{id}/remove-authority")
+    public ResponseEntity<UserDetails> removeAuthority(@PathVariable Integer id, @RequestBody Authority authority) {
+        return this.userService.removeAuthority(id, authority)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /* omitted code */
+}
+````
+
+- Listando los usuarios (Ya lo habíamos trabajado en apartados anteriores):
+
+````bash
+curl -v http://localhost:8080/api/v1/users | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+[
+  {
+    "id": 2,
+    "username": "admin",
+    "password": "123456",
+    "accountNonExpired": true,
+    "accountNonLocked": true,
+    "credentialsNonExpired": true,
+    "enabled": true,
+    "firstName": "Martín",
+    "lastName": "Díaz",
+    "emailAddress": "martin@gmail.com",
+    "birthdate": "2000-01-15"
+  },
+  {
+    "id": 4,
+    "username": "user",
+    "password": "123456",
+    "accountNonExpired": true,
+    "accountNonLocked": true,
+    "credentialsNonExpired": true,
+    "enabled": true,
+    "firstName": "Clara",
+    "lastName": "Díaz",
+    "emailAddress": "clara@gmail.com",
+    "birthdate": "1998-07-28"
+  },
+  {
+    "id": 6,
+    "username": "karen",
+    "password": "123456",
+    "accountNonExpired": true,
+    "accountNonLocked": true,
+    "credentialsNonExpired": true,
+    "enabled": true,
+    "firstName": "Karen",
+    "lastName": "Díaz",
+    "emailAddress": "karen@gmail.com",
+    "birthdate": "2000-06-03"
+  }
+]
+````
+
+- Ver un usuario:
+
+````bash
+curl -v http://localhost:8080/api/v1/users/4 | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "id": 4,
+  "username": "user",
+  "password": "123456",
+  "accountNonExpired": true,
+  "accountNonLocked": true,
+  "credentialsNonExpired": true,
+  "enabled": true,
+  "firstName": "Clara",
+  "lastName": "Díaz",
+  "emailAddress": "clara@gmail.com",
+  "birthdate": "1998-07-28"
+}
+````
+
+````roomsql
+SELECT `users`.`id` AS `id`, `users`.`enabled` AS `enabled`, `users`.`last_name` AS `last_name`, `users`.`username` AS `username`, `users`.`password` AS `password`, `users`.`birthdate` AS `birthdate`, `users`.`first_name` AS `first_name`, `users`.`email_address` AS `email_address`, `users`.`account_non_locked` AS `account_non_locked`, `users`.`account_non_expired` AS `account_non_expired`, `users`.`credentials_non_expired` AS `credentials_non_expired` 
+FROM `users` 
+WHERE `users`.`id` = ?
+--column index 1, parameter value [4], value class [java.lang.Integer]
+````
+
+````roomsql
+SELECT `users_authorities`.`authority_id` AS `authority_id` 
+FROM `users_authorities` 
+WHERE `users_authorities`.`user_id` = ?
+--column index 1, parameter value [4], value class [java.lang.Integer]
+````
+
+- Crear un usuario:
+
+````bash
+curl -v -X POST -H "Content-Type: application/json" -d "{\"username\": \"nophy\", \"password\": \"123456\", \"accountNonExpired\": true, \"accountNonLocked\": true, \"credentialsNonExpired\": true, \"enabled\": true, \"firstName\": \"Nophy\", \"lastName\": \"Diaz\", \"emailAddress\": \"nophy@gmail.com\", \"birthdate\": \"2023-01-01\"}" http://localhost:8080/api/v1/users | jq
+
+>
+} [248 bytes data]
+< HTTP/1.1 201
+< Location: /api/v1/users7
+<
+{
+  "id": 7,
+  "username": "nophy",
+  "password": "123456",
+  "accountNonExpired": true,
+  "accountNonLocked": true,
+  "credentialsNonExpired": true,
+  "enabled": true,
+  "firstName": "Nophy",
+  "lastName": "Diaz",
+  "emailAddress": "nophy@gmail.com",
+  "birthdate": "2023-01-01"
+}
+````
+
+````roomsql
+INSERT INTO `users` (`account_non_expired`, `account_non_locked`, `birthdate`, `credentials_non_expired`, `email_address`, `enabled`, `first_name`, `last_name`, `password`, `username`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+--column index 1, parameter value [true], value class [java.lang.Boolean], SQL type -7
+--column index 2, parameter value [true], value class [java.lang.Boolean], SQL type -7
+--column index 3, parameter value [2023-01-01 00:00:00.0], value class [java.sql.Timestamp], SQL type 93
+--column index 4, parameter value [true], value class [java.lang.Boolean], SQL type -7
+--column index 5, parameter value [nophy@gmail.com], value class [java.lang.String], SQL type 12
+--column index 6, parameter value [true], value class [java.lang.Boolean], SQL type -7
+--column index 7, parameter value [Nophy], value class [java.lang.String], SQL type 12
+--column index 8, parameter value [Diaz], value class [java.lang.String], SQL type 12
+--column index 9, parameter value [123456], value class [java.lang.String], SQL type 12
+--column index 10, parameter value [nophy], value class [java.lang.String], SQL type 12
+````
+
+- Actualizar un usuario:
+
+````bash
+curl -v -X PUT -H "Content-Type: application/json" -d "{\"username\": \"nophy updated\", \"password\": \"123456\", \"accountNonExpired\": true, \"accountNonLocked\": true, \"credentialsNonExpired\": true, \"enabled\": true, \"firstName\": \"Nophy\", \"lastName\": \"Diaz\", \"emailAddress\": \"nophy@gmail.com\", \"birthdate\": \"2023-01-01\"}" http://localhost:8080/api/v1/users/7 | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "id": 7,
+  "username": "nophy updated",
+  "password": "123456",
+  "accountNonExpired": true,
+  "accountNonLocked": true,
+  "credentialsNonExpired": true,
+  "enabled": true,
+  "firstName": "Nophy",
+  "lastName": "Diaz",
+  "emailAddress": "nophy@gmail.com",
+  "birthdate": "2023-01-01"
+}
+````
+
+- Agregar un authority a un user:
+
+````bash
+curl -v -X PUT -H "Content-Type: application/json" -d "{\"id\": 5, \"authority\": \"ROLE_ADMIN\"}" http://localhost:8080/api/v1/users/7/add-authority | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "user": {
+    "id": 7,
+    "username": "nophy updated",
+    "password": "123456",
+    "accountNonExpired": true,
+    "accountNonLocked": true,
+    "credentialsNonExpired": true,
+    "enabled": true,
+    "firstName": "Nophy",
+    "lastName": "Diaz",
+    "emailAddress": "nophy@gmail.com",
+    "birthdate": "2023-01-01"
+  },
+  "authorities": [
+    {
+      "id": 5,
+      "authority": "ROLE_ADMIN"
+    }
+  ]
+}
+````
+
+````bash
+curl -v -X PUT -H "Content-Type: application/json" -d "{\"id\": 3, \"authority\": \"ROLE_USER\"}" http://localhost:8080/api/v1/users/7/add-authority | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "user": {
+    "id": 7,
+    "username": "nophy updated",
+    "password": "123456",
+    "accountNonExpired": true,
+    "accountNonLocked": true,
+    "credentialsNonExpired": true,
+    "enabled": true,
+    "firstName": "Nophy",
+    "lastName": "Diaz",
+    "emailAddress": "nophy@gmail.com",
+    "birthdate": "2023-01-01"
+  },
+  "authorities": [
+    {
+      "id": 3,
+      "authority": "ROLE_USER"
+    },
+    {
+      "id": 5,
+      "authority": "ROLE_ADMIN"
+    }
+  ]
+}
+````
+
+- Eliminar un authority de un user:
+
+````bash
+curl -v -X PUT -H "Content-Type: application/json" -d "{\"id\": 5, \"authority\": \"ROLE_ADMIN\"}" http://localhost:8080/api/v1/users/7/remove-authority | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "user": {
+    "id": 7,
+    "username": "nophy updated",
+    "password": "123456",
+    "accountNonExpired": true,
+    "accountNonLocked": true,
+    "credentialsNonExpired": true,
+    "enabled": true,
+    "firstName": "Nophy",
+    "lastName": "Diaz",
+    "emailAddress": "nophy@gmail.com",
+    "birthdate": "2023-01-01"
+  },
+  "authorities": [
+    {
+      "id": 3,
+      "authority": "ROLE_USER"
+    }
+  ]
+}
+````
+
+- Eliminar un usuario:
+
+````bash
+curl -v -X DELETE http://localhost:8080/api/v1/users/7 | jq
+
+>
+< HTTP/1.1 204
+````
+
+````roomsql
+SELECT `users`.`id` AS `id`, `users`.`enabled` AS `enabled`, `users`.`last_name` AS `last_name`, `users`.`username` AS `username`, `users`.`password` AS `password`, `users`.`birthdate` AS `birthdate`, `users`.`first_name` AS `first_name`, `users`.`email_address` AS `email_address`, `users`.`account_non_locked` AS `account_non_locked`, `users`.`account_non_expired` AS `account_non_expired`, `users`.`credentials_non_expired` AS `credentials_non_expired`
+FROM `users` 
+WHERE `users`.`id` = ?
+--column index 1, parameter value [7], value class [java.lang.Integer], SQL type 4
+````
+
+````roomsql
+SELECT `users_authorities`.`authority_id` AS `authority_id` 
+FROM `users_authorities` 
+WHERE `users_authorities`.`user_id` = ?
+--column index 1, parameter value [7], value class [java.lang.Integer], SQL type 4
+````
+
+````sql
+SELECT `users`.`id` 
+FROM `users` 
+WHERE `users`.`id` = ? FOR UPDATE
+--column index 1, parameter value [7], value class [java.lang.Integer], SQL type 4
+````
+
+````roomsql
+DELETE FROM `users_authorities` WHERE `users_authorities`.`user_id` = ?
+--column index 1, parameter value [7], value class [java.lang.Integer], SQL type 4
+````
+
+````roomsql
+DELETE FROM `users` WHERE `users`.`id` = ?
+--column index 1, parameter value [7], value class [java.lang.Integer], SQL type 4
+````
+
+Observemos que la tercera consulta SQL generada contiene la cláusula `FOR UPDATE`, **¿qué hace?**:
+
+> **FUENTE: ChatGPT**
+>
+> La cláusula `FOR UPDATE` se utiliza generalmente en consultas SQL dentro de transacciones en bases de datos
+> relacionales. Su propósito principal es **bloquear las filas seleccionadas en la consulta para evitar que otras
+> transacciones realicen cambios en esas filas hasta que la transacción actual se complete.**
+>
+> Al agregar `FOR UPDATE` al final de la consulta, estás indicando a la base de datos que las filas que cumplan con la
+> condición de la consulta `(WHERE users.id = ?)` deben ser bloqueadas en modo de lectura y escritura hasta que se
+> complete la transacción actual. Esto significa que otras transacciones que intenten modificar o bloquear las mismas
+> filas deberán esperar hasta que la transacción actual termine.
+>
+> Esta cláusula es particularmente útil en escenarios donde necesitas asegurarte de que ciertas filas no sean
+> modificadas por otras transacciones mientras realizas operaciones en ellas. Por ejemplo, si estás realizando una
+> operación de actualización en base a los resultados de esta consulta, puedes usar `FOR UPDATE` para evitar que otros
+> procesos modifiquen esas filas entre el momento en que seleccionas las filas y cuando las actualizas.
+
