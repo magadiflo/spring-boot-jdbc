@@ -3930,3 +3930,6 @@ Observemos que la tercera consulta SQL generada contiene la cláusula `FOR UPDAT
 > operación de actualización en base a los resultados de esta consulta, puedes usar `FOR UPDATE` para evitar que otros
 > procesos modifiquen esas filas entre el momento en que seleccionas las filas y cuando las actualizas.
 
+## Resumen de las tablas de base de datos trabajadas
+
+![db_spring_data_jdbc_schema.png](./assets/db_spring_data_jdbc_schema.png)
