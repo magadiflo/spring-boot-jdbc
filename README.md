@@ -1574,7 +1574,6 @@ La entidad **AuthorityRef** es solo para contener identificadores de entidad de 
 ````java
 
 @Data
-@Builder
 @Table(name = "users_authorities")
 public class AuthorityRef {
     @Column(value = "authority_id")
@@ -2449,7 +2448,7 @@ curl -v -X DELETE http://localhost:8080/api/v1/tutorials | jq
 DELETE FROM `tutorials`
 ````
 
-## CRUD API Relación One-to-One entre dos tablas de BD
+## CRUD API Relación One-to-One entre owners y addresses
 
 En este apartado trabajaremos sobre las tablas `owners` y `addresses` de la base de datos que están relacionados de
 `One-to-One`. Recordemos que anteriormente ya habíamos trabajado estas tablas quienes están mapeadas a las entidades
@@ -3194,3 +3193,740 @@ curl -v -X DELETE http://localhost:8080/api/v1/tasks/40 | jq
 >
 < HTTP/1.1 204
 ````
+
+## CRUD API Relación Many-to-Many entre users y authorities
+
+Recordemos cómo tenemos relacionados las tablas `users` y `authorities` en la base de datos, vemos que le agregamos una
+tabla intermedia en la relación:
+
+![user-authorities-db](./assets/users_authorities-mysql.png)
+
+### Trabajando con la entidad Authority
+
+Observemos cómo tenemos nuestra clase de entidad `Authority`:
+
+````java
+
+@Data
+@Builder
+@Table(name = "authorities")
+public class Authority {
+    @Id
+    private Integer id;
+    private String authority;
+}
+````
+
+Como vemos, nuestra entidad `Authority` se presta para crearle directamente su CRUD sin problema alguno, así que
+empezaremos con la clase de servicio implementando sus métodos:
+
+````java
+
+@RequiredArgsConstructor
+@Service
+public class AuthorityService {
+
+    /* omitted properties */
+
+    @Transactional(readOnly = true)
+    public List<Authority> getAuthorities() {
+        return this.authorityRepository.findAll();
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<Authority> getAuthority(Integer id) {
+        return this.authorityRepository.findById(id);
+    }
+
+    @Transactional
+    public Authority createAuthority(Authority authority) {
+        return this.authorityRepository.save(authority);
+    }
+
+    @Transactional
+    public Optional<Authority> updateAuthority(Integer id, Authority authority) {
+        return this.authorityRepository.findById(id)
+                .map(authorityDB -> {
+                    authorityDB.setAuthority(authority.getAuthority());
+                    return this.authorityRepository.save(authorityDB);
+                });
+    }
+
+    @Transactional
+    public Optional<Boolean> deleteAuthority(Integer id) {
+        return this.authorityRepository.findById(id)
+                .map(authorityDB -> {
+                    this.authorityRepository.deleteById(authorityDB.getId());
+                    return true;
+                });
+    }
+
+    /* omitted method getAuthorityDetails(...) */
+}
+````
+
+Llegados a este punto toca implementar los enpoints del CRUD en la clase controladora:
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/authorities")
+public class AuthorityController {
+
+    /* omitted property */
+
+    @GetMapping
+    public ResponseEntity<List<Authority>> getAllAuthorities() {
+        return ResponseEntity.ok(this.authorityService.getAuthorities());
+    }
+
+    @GetMapping(path = "/{id}")
+    public ResponseEntity<Authority> getAuthority(@PathVariable Integer id) {
+        return this.authorityService.getAuthority(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PostMapping
+    public ResponseEntity<Authority> createAuthority(@RequestBody Authority authority) {
+        Authority authorityDB = this.authorityService.createAuthority(authority);
+        URI uriAuthority = URI.create("/api/v1/authorities" + authorityDB.getId());
+        return ResponseEntity.created(uriAuthority).body(authorityDB);
+    }
+
+    @PutMapping(path = "/{id}")
+    public ResponseEntity<Authority> updateAuthority(@PathVariable Integer id, @RequestBody Authority authority) {
+        return this.authorityService.updateAuthority(id, authority)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping(path = "/{id}")
+    public ResponseEntity<Void> deleteAuthority(@PathVariable Integer id) {
+        return this.authorityService.deleteAuthority(id)
+                .map(wasDeleted -> new ResponseEntity<Void>(HttpStatus.NO_CONTENT))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /* omitted endpoint /{id}/details */
+}
+````
+
+Probando CRUD para la tabla `authorities`:
+
+- Listando los authorities:
+
+````bash
+curl -v http://localhost:8080/api/v1/authorities | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+[
+  {
+    "id": 3,
+    "authority": "ROLE_USER"
+  },
+  {
+    "id": 5,
+    "authority": "ROLE_ADMIN"
+  },
+  {
+    "id": 7,
+    "authority": "ROLE_DEVELOPER"
+  }
+]
+````
+
+````roomsql
+SELECT `authorities`.`id` AS `id`, `authorities`.`authority` AS `authority` 
+FROM `authorities`
+````
+
+- Ver un authority:
+
+````bash
+curl -v http://localhost:8080/api/v1/authorities/3 | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "id": 3,
+  "authority": "ROLE_USER"
+}
+````
+
+````roomsql
+SELECT `authorities`.`id` AS `id`, `authorities`.`authority` AS `authority` 
+FROM `authorities` 
+WHERE `authorities`.`id` = ?
+--column index 1, parameter value [3], value class [java.lang.Integer]
+````
+
+- Guardar un authority:
+
+````bash
+curl -v -X POST -H "Content-Type: application/json" -d "{\"authority\": \"ROLE_TESTER\"}" http://localhost:8080/api/v1/authorities | jq
+
+>
+< HTTP/1.1 201
+< Location: /api/v1/authorities8
+< Content-Type: application/json
+<
+{
+  "id": 8,
+  "authority": "ROLE_TESTER"
+}
+````
+
+````roomsql
+INSERT INTO `authorities` (`authority`) VALUES (?)
+---column index 1, parameter value [ROLE_TESTER], value class [java.lang.String]
+````
+
+- Actualizar un authority:
+
+````bash
+curl -v -X PUT -H "Content-Type: application/json" -d "{\"authority\": \"ROLE_TESTER_UPDATE\"}" http://localhost:8080/api/v1/authorities/8 | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "id": 8,
+  "authority": "ROLE_TESTER_UPDATE"
+}
+````
+
+````roomsql
+SELECT `authorities`.`id` AS `id`, `authorities`.`authority` AS `authority` 
+FROM `authorities` 
+WHERE `authorities`.`id` = ?
+--column index 1, parameter value [8], value class [java.lang.Integer]
+````
+
+````roomsql
+UPDATE `authorities` 
+SET `authority` = ? 
+WHERE `authorities`.`id` = ?
+--column index 1, parameter value [ROLE_TESTER_UPDATE], value class [java.lang.String]
+--column index 2, parameter value [8], value class [java.lang.Integer]
+````
+
+- Eliminar un authority:
+
+````bash
+curl -v -X DELETE http://localhost:8080/api/v1/authorities/8 | jq
+
+>
+< HTTP/1.1 204
+````
+
+````roomsql
+SELECT `authorities`.`id` AS `id`, `authorities`.`authority` AS `authority` 
+FROM `authorities` 
+WHERE `authorities`.`id` = ?
+--column index 1, parameter value [8], value class [java.lang.Integer]
+````
+
+````roomsql
+DELETE FROM `authorities` WHERE `authorities`.`id` = ?
+--column index 1, parameter value [8], value class [java.lang.Integer]
+````
+
+**IMPORTANTE**
+> En este punto, si se intenta eliminar un Authority que está siendo usando por la relación nos arrojará un error de
+> constraint: `Cannot delete or update a parent row: a foreign key constraint fails
+> (db_spring_data_jdbc.users_authorities, CONSTRAINT fk_authorities__users_authorities FOREIGN KEY (authority_id)
+> REFERENCES authorities (id))`
+
+### Trabajando con la entidad User
+
+Veamos cómo está conformado nuestra entidad `User`, observaremos que le agregamos dos métodos para poder agregar
+y eliminar authorities:
+
+````java
+
+@Data
+@Builder
+@Table(name = "users")
+public class User {
+    @Id
+    private Integer id;
+    private String username;
+    private String password;
+    @Column(value = "account_non_expired")
+    private Boolean accountNonExpired;
+    private Boolean accountNonLocked;
+    private Boolean credentialsNonExpired;
+    private Boolean enabled;
+    private String firstName;
+    private String lastName;
+    private String emailAddress;
+    private LocalDate birthdate;
+
+    @JsonIgnore
+    @MappedCollection(idColumn = "user_id")
+    private Set<AuthorityRef> authorities = new HashSet<>();
+
+    public void addAuthority(Authority authority) {
+        AuthorityRef authorityRef = new AuthorityRef();
+        authorityRef.setAuthorityId(authority.getId());
+        this.authorities.add(authorityRef);
+    }
+
+    public void removeAuthority(Authority authority) {
+        AuthorityRef authorityRef = new AuthorityRef();
+        authorityRef.setAuthorityId(authority.getId());
+        this.authorities.remove(authorityRef);
+    }
+}
+````
+
+El siguiente paso es definir los métodos restantes en el servicio `UserService`:
+
+````java
+
+@RequiredArgsConstructor
+@Service
+public class UserService {
+
+    /* omitted code */
+
+    @Transactional(readOnly = true)
+    public Optional<User> getUser(Integer id) {
+        return this.userRepository.findById(id);
+    }
+
+    @Transactional
+    public User createUser(User user) {
+        return this.userRepository.save(user);
+    }
+
+    @Transactional
+    public Optional<User> updateUser(Integer id, User user) {
+        return this.userRepository.findById(id)
+                .map(userDB -> {
+                    userDB.setUsername(user.getUsername());
+                    userDB.setPassword(user.getPassword());
+                    userDB.setAccountNonExpired(user.getAccountNonExpired());
+                    userDB.setAccountNonLocked(user.getAccountNonLocked());
+                    userDB.setCredentialsNonExpired(user.getCredentialsNonExpired());
+                    userDB.setEnabled(user.getEnabled());
+                    userDB.setFirstName(user.getFirstName());
+                    userDB.setLastName(user.getLastName());
+                    userDB.setEmailAddress(user.getEmailAddress());
+                    userDB.setBirthdate(user.getBirthdate());
+                    return this.userRepository.save(userDB);
+                });
+    }
+
+    @Transactional
+    public Optional<Boolean> deleteUser(Integer id) {
+        return this.userRepository.findById(id)
+                .map(userDB -> {
+                    this.userRepository.deleteById(id);
+                    return true;
+                });
+    }
+
+    @Transactional
+    public Optional<UserDetails> addAuthority(Integer id, Authority authority) {
+        return this.userRepository.findById(id)
+                .map(userDB -> {
+                    userDB.addAuthority(authority);
+                    User userSaved = this.userRepository.save(userDB);
+                    List<Authority> authorities = this.authorityRepository.findAllAuthoritiesByUserId(userDB.getId());
+                    return new UserDetails(userSaved, authorities);
+                });
+    }
+
+    @Transactional
+    public Optional<UserDetails> removeAuthority(Integer id, Authority authority) {
+        return this.userRepository.findById(id)
+                .map(userDB -> {
+                    userDB.removeAuthority(authority);
+                    User userSaved = this.userRepository.save(userDB);
+                    List<Authority> authorities = this.authorityRepository.findAllAuthoritiesByUserId(userDB.getId());
+                    return new UserDetails(userSaved, authorities);
+                });
+    }
+
+    /* omitted code */
+}
+````
+
+Es importante observar que cuando agregamos o eliminamos un Authority a un User lo que nos retorna el método es un
+`UserDetails` conteniendo tanto el `User` como una lista de `Authority`.
+
+Finalmente, queda implementar el controlador `UserController`:
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/users")
+public class UserController {
+
+    /* omitted code */
+
+    @GetMapping(path = "/{id}")
+    public ResponseEntity<User> getUser(@PathVariable Integer id) {
+        return this.userService.getUser(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PostMapping
+    public ResponseEntity<User> createUser(@RequestBody User user) {
+        User userDB = this.userService.createUser(user);
+        URI uriUser = URI.create("/api/v1/users" + userDB.getId());
+        return ResponseEntity.created(uriUser).body(userDB);
+    }
+
+    @PutMapping(path = "/{id}")
+    public ResponseEntity<User> updateUser(@PathVariable Integer id, @RequestBody User user) {
+        return this.userService.updateUser(id, user)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping(path = "/{id}")
+    public ResponseEntity<Void> deleteUser(@PathVariable Integer id) {
+        return this.userService.deleteUser(id)
+                .map(wasDeleted -> new ResponseEntity<Void>(HttpStatus.NO_CONTENT))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PutMapping(path = "/{id}/add-authority")
+    public ResponseEntity<UserDetails> addAuthority(@PathVariable Integer id, @RequestBody Authority authority) {
+        return this.userService.addAuthority(id, authority)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PutMapping(path = "/{id}/remove-authority")
+    public ResponseEntity<UserDetails> removeAuthority(@PathVariable Integer id, @RequestBody Authority authority) {
+        return this.userService.removeAuthority(id, authority)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /* omitted code */
+}
+````
+
+- Listando los usuarios (Ya lo habíamos trabajado en apartados anteriores):
+
+````bash
+curl -v http://localhost:8080/api/v1/users | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+[
+  {
+    "id": 2,
+    "username": "admin",
+    "password": "123456",
+    "accountNonExpired": true,
+    "accountNonLocked": true,
+    "credentialsNonExpired": true,
+    "enabled": true,
+    "firstName": "Martín",
+    "lastName": "Díaz",
+    "emailAddress": "martin@gmail.com",
+    "birthdate": "2000-01-15"
+  },
+  {
+    "id": 4,
+    "username": "user",
+    "password": "123456",
+    "accountNonExpired": true,
+    "accountNonLocked": true,
+    "credentialsNonExpired": true,
+    "enabled": true,
+    "firstName": "Clara",
+    "lastName": "Díaz",
+    "emailAddress": "clara@gmail.com",
+    "birthdate": "1998-07-28"
+  },
+  {
+    "id": 6,
+    "username": "karen",
+    "password": "123456",
+    "accountNonExpired": true,
+    "accountNonLocked": true,
+    "credentialsNonExpired": true,
+    "enabled": true,
+    "firstName": "Karen",
+    "lastName": "Díaz",
+    "emailAddress": "karen@gmail.com",
+    "birthdate": "2000-06-03"
+  }
+]
+````
+
+- Ver un usuario:
+
+````bash
+curl -v http://localhost:8080/api/v1/users/4 | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "id": 4,
+  "username": "user",
+  "password": "123456",
+  "accountNonExpired": true,
+  "accountNonLocked": true,
+  "credentialsNonExpired": true,
+  "enabled": true,
+  "firstName": "Clara",
+  "lastName": "Díaz",
+  "emailAddress": "clara@gmail.com",
+  "birthdate": "1998-07-28"
+}
+````
+
+````roomsql
+SELECT `users`.`id` AS `id`, `users`.`enabled` AS `enabled`, `users`.`last_name` AS `last_name`, `users`.`username` AS `username`, `users`.`password` AS `password`, `users`.`birthdate` AS `birthdate`, `users`.`first_name` AS `first_name`, `users`.`email_address` AS `email_address`, `users`.`account_non_locked` AS `account_non_locked`, `users`.`account_non_expired` AS `account_non_expired`, `users`.`credentials_non_expired` AS `credentials_non_expired` 
+FROM `users` 
+WHERE `users`.`id` = ?
+--column index 1, parameter value [4], value class [java.lang.Integer]
+````
+
+````roomsql
+SELECT `users_authorities`.`authority_id` AS `authority_id` 
+FROM `users_authorities` 
+WHERE `users_authorities`.`user_id` = ?
+--column index 1, parameter value [4], value class [java.lang.Integer]
+````
+
+- Crear un usuario:
+
+````bash
+curl -v -X POST -H "Content-Type: application/json" -d "{\"username\": \"nophy\", \"password\": \"123456\", \"accountNonExpired\": true, \"accountNonLocked\": true, \"credentialsNonExpired\": true, \"enabled\": true, \"firstName\": \"Nophy\", \"lastName\": \"Diaz\", \"emailAddress\": \"nophy@gmail.com\", \"birthdate\": \"2023-01-01\"}" http://localhost:8080/api/v1/users | jq
+
+>
+} [248 bytes data]
+< HTTP/1.1 201
+< Location: /api/v1/users7
+<
+{
+  "id": 7,
+  "username": "nophy",
+  "password": "123456",
+  "accountNonExpired": true,
+  "accountNonLocked": true,
+  "credentialsNonExpired": true,
+  "enabled": true,
+  "firstName": "Nophy",
+  "lastName": "Diaz",
+  "emailAddress": "nophy@gmail.com",
+  "birthdate": "2023-01-01"
+}
+````
+
+````roomsql
+INSERT INTO `users` (`account_non_expired`, `account_non_locked`, `birthdate`, `credentials_non_expired`, `email_address`, `enabled`, `first_name`, `last_name`, `password`, `username`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+--column index 1, parameter value [true], value class [java.lang.Boolean], SQL type -7
+--column index 2, parameter value [true], value class [java.lang.Boolean], SQL type -7
+--column index 3, parameter value [2023-01-01 00:00:00.0], value class [java.sql.Timestamp], SQL type 93
+--column index 4, parameter value [true], value class [java.lang.Boolean], SQL type -7
+--column index 5, parameter value [nophy@gmail.com], value class [java.lang.String], SQL type 12
+--column index 6, parameter value [true], value class [java.lang.Boolean], SQL type -7
+--column index 7, parameter value [Nophy], value class [java.lang.String], SQL type 12
+--column index 8, parameter value [Diaz], value class [java.lang.String], SQL type 12
+--column index 9, parameter value [123456], value class [java.lang.String], SQL type 12
+--column index 10, parameter value [nophy], value class [java.lang.String], SQL type 12
+````
+
+- Actualizar un usuario:
+
+````bash
+curl -v -X PUT -H "Content-Type: application/json" -d "{\"username\": \"nophy updated\", \"password\": \"123456\", \"accountNonExpired\": true, \"accountNonLocked\": true, \"credentialsNonExpired\": true, \"enabled\": true, \"firstName\": \"Nophy\", \"lastName\": \"Diaz\", \"emailAddress\": \"nophy@gmail.com\", \"birthdate\": \"2023-01-01\"}" http://localhost:8080/api/v1/users/7 | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "id": 7,
+  "username": "nophy updated",
+  "password": "123456",
+  "accountNonExpired": true,
+  "accountNonLocked": true,
+  "credentialsNonExpired": true,
+  "enabled": true,
+  "firstName": "Nophy",
+  "lastName": "Diaz",
+  "emailAddress": "nophy@gmail.com",
+  "birthdate": "2023-01-01"
+}
+````
+
+- Agregar un authority a un user:
+
+````bash
+curl -v -X PUT -H "Content-Type: application/json" -d "{\"id\": 5, \"authority\": \"ROLE_ADMIN\"}" http://localhost:8080/api/v1/users/7/add-authority | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "user": {
+    "id": 7,
+    "username": "nophy updated",
+    "password": "123456",
+    "accountNonExpired": true,
+    "accountNonLocked": true,
+    "credentialsNonExpired": true,
+    "enabled": true,
+    "firstName": "Nophy",
+    "lastName": "Diaz",
+    "emailAddress": "nophy@gmail.com",
+    "birthdate": "2023-01-01"
+  },
+  "authorities": [
+    {
+      "id": 5,
+      "authority": "ROLE_ADMIN"
+    }
+  ]
+}
+````
+
+````bash
+curl -v -X PUT -H "Content-Type: application/json" -d "{\"id\": 3, \"authority\": \"ROLE_USER\"}" http://localhost:8080/api/v1/users/7/add-authority | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "user": {
+    "id": 7,
+    "username": "nophy updated",
+    "password": "123456",
+    "accountNonExpired": true,
+    "accountNonLocked": true,
+    "credentialsNonExpired": true,
+    "enabled": true,
+    "firstName": "Nophy",
+    "lastName": "Diaz",
+    "emailAddress": "nophy@gmail.com",
+    "birthdate": "2023-01-01"
+  },
+  "authorities": [
+    {
+      "id": 3,
+      "authority": "ROLE_USER"
+    },
+    {
+      "id": 5,
+      "authority": "ROLE_ADMIN"
+    }
+  ]
+}
+````
+
+- Eliminar un authority de un user:
+
+````bash
+curl -v -X PUT -H "Content-Type: application/json" -d "{\"id\": 5, \"authority\": \"ROLE_ADMIN\"}" http://localhost:8080/api/v1/users/7/remove-authority | jq
+
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+<
+{
+  "user": {
+    "id": 7,
+    "username": "nophy updated",
+    "password": "123456",
+    "accountNonExpired": true,
+    "accountNonLocked": true,
+    "credentialsNonExpired": true,
+    "enabled": true,
+    "firstName": "Nophy",
+    "lastName": "Diaz",
+    "emailAddress": "nophy@gmail.com",
+    "birthdate": "2023-01-01"
+  },
+  "authorities": [
+    {
+      "id": 3,
+      "authority": "ROLE_USER"
+    }
+  ]
+}
+````
+
+- Eliminar un usuario:
+
+````bash
+curl -v -X DELETE http://localhost:8080/api/v1/users/7 | jq
+
+>
+< HTTP/1.1 204
+````
+
+````roomsql
+SELECT `users`.`id` AS `id`, `users`.`enabled` AS `enabled`, `users`.`last_name` AS `last_name`, `users`.`username` AS `username`, `users`.`password` AS `password`, `users`.`birthdate` AS `birthdate`, `users`.`first_name` AS `first_name`, `users`.`email_address` AS `email_address`, `users`.`account_non_locked` AS `account_non_locked`, `users`.`account_non_expired` AS `account_non_expired`, `users`.`credentials_non_expired` AS `credentials_non_expired`
+FROM `users` 
+WHERE `users`.`id` = ?
+--column index 1, parameter value [7], value class [java.lang.Integer], SQL type 4
+````
+
+````roomsql
+SELECT `users_authorities`.`authority_id` AS `authority_id` 
+FROM `users_authorities` 
+WHERE `users_authorities`.`user_id` = ?
+--column index 1, parameter value [7], value class [java.lang.Integer], SQL type 4
+````
+
+````sql
+SELECT `users`.`id` 
+FROM `users` 
+WHERE `users`.`id` = ? FOR UPDATE
+--column index 1, parameter value [7], value class [java.lang.Integer], SQL type 4
+````
+
+````roomsql
+DELETE FROM `users_authorities` WHERE `users_authorities`.`user_id` = ?
+--column index 1, parameter value [7], value class [java.lang.Integer], SQL type 4
+````
+
+````roomsql
+DELETE FROM `users` WHERE `users`.`id` = ?
+--column index 1, parameter value [7], value class [java.lang.Integer], SQL type 4
+````
+
+Observemos que la tercera consulta SQL generada contiene la cláusula `FOR UPDATE`, **¿qué hace?**:
+
+> **FUENTE: ChatGPT**
+>
+> La cláusula `FOR UPDATE` se utiliza generalmente en consultas SQL dentro de transacciones en bases de datos
+> relacionales. Su propósito principal es **bloquear las filas seleccionadas en la consulta para evitar que otras
+> transacciones realicen cambios en esas filas hasta que la transacción actual se complete.**
+>
+> Al agregar `FOR UPDATE` al final de la consulta, estás indicando a la base de datos que las filas que cumplan con la
+> condición de la consulta `(WHERE users.id = ?)` deben ser bloqueadas en modo de lectura y escritura hasta que se
+> complete la transacción actual. Esto significa que otras transacciones que intenten modificar o bloquear las mismas
+> filas deberán esperar hasta que la transacción actual termine.
+>
+> Esta cláusula es particularmente útil en escenarios donde necesitas asegurarte de que ciertas filas no sean
+> modificadas por otras transacciones mientras realizas operaciones en ellas. Por ejemplo, si estás realizando una
+> operación de actualización en base a los resultados de esta consulta, puedes usar `FOR UPDATE` para evitar que otros
+> procesos modifiquen esas filas entre el momento en que seleccionas las filas y cuando las actualizas.
+

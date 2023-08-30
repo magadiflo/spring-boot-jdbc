@@ -33,4 +33,16 @@ public class User {
     @JsonIgnore
     @MappedCollection(idColumn = "user_id")
     private Set<AuthorityRef> authorities = new HashSet<>();
+
+    public void addAuthority(Authority authority) {
+        AuthorityRef authorityRef = new AuthorityRef();
+        authorityRef.setAuthorityId(authority.getId());
+        this.authorities.add(authorityRef);
+    }
+
+    public void removeAuthority(Authority authority) {
+        AuthorityRef authorityRef = new AuthorityRef();
+        authorityRef.setAuthorityId(authority.getId());
+        this.authorities.remove(authorityRef);
+    }
 }
