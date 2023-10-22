@@ -4,21 +4,102 @@ Tomado del canal de youtube **Spring Boot TUTORIAL**
 
 ---
 
+## [JDBC vs JPA: Pros y Contras](https://www.youtube.com/watch?v=XuLUnTlAWmw&t=10s)
+
+Antes de comenzar de lleno con `Spring Data JDBC` es importante hacer una comparación entre las distintas tecnologías
+que nos permiten **manejar la persistencia de datos** en nuestra aplicación de **Spring Boot**, tales como:
+`JDBCTemplate, Spring Data JPA, Spring Data JDBC`.
+
+### JDBC
+
+`Java Data Base Connectivity API`, es una implementación estándar para conectarnos a bases de datos relacionales. Todo
+lo que se comunica con base de datos cuando hablamos de java, pasa por `JDBC`.
+
+El patrón que se sigue cuando vamos a cualquier tecnología, no solo la basada en java, es el siguiente:
+
+1. Abres una conexión.
+2. Abres un cursor.
+3. Envías una consulta.
+4. Obtienes un conjunto de resultados (resultSet) sobre el que iteras.
+5. Cierras el resultSet.
+6. Cierras el cursor.
+7. Finalmente, cierras la conexión.
+
+Ahora, tal vez nos toque implementar muchas consultas, supongamos unas 20 y **desafortunadamente nos olvidamos de cerrar
+una de ellas**, eso podría traernos problemas.
+
+El administrar las conexiones, abrirlas, cerrarlas, etc., no es una tarea difícil pero es tediosa y de eso se debría
+encargar el framework, es ahí donde nace `JdbcTemplate`.
+
+### Jdbc Template
+
+Como desarrolladores de código de aplicación, nuestro enfoque debe ser escribir la consulta, obtener los resultados y
+olvidarnos de la tarea de administrar las conexiones. En base a esa necesidad es que nació `JdbcTemplate`.
+
+`Jdbc Template` es una plantilla que básicamente nos permite concentrarnos en **enviar la consulta y consumir los
+resultados**, todo lo demás, como cerrar conexiones, cerrar los resultSets son administradas por el kit de herramientas.
+
+### Hibernate
+
+Supongamos que creamos unas 200 consultas SQL, se vuelve abrumador poder escribirlas unas tras otras, porque por
+ejemplo, estamos repitiendo los atributos de un objeto constantemente, entonces nos preguntamos:
+**¿Por qué java no puede inferir o mapear el tipo de objeto que uso?** digamos que esa fue la razón por la que se generó
+el proyecto de `Hibernate` (precursor o iniciador de JPA).
+
+Otra razón por la que surgió hibernate es que las bases de datos como: **Oracle, MySQL, PostgreSQL, SQL Server, etc.,**
+si bien es cierto usan el estándar SQL, todas estas bases de datos tienen sintaxis propias adicionales como por ejemplo,
+**MySQL = AUTO_INCREMENT, SQLServer = Identity, Oracle = Secuencias, etc.** Entoces hibernate dijo, que si nosotros
+mapeamos nuestros objetos java con Hibernate, éste se encargaría de **UNIFICAR** el acceso de tal forma que no debemos
+preocuparnos por la sintaxis adicional de cada base de datos.
+
+Hibernate se volvió tan popular que lo estandarizaron y crearon `JPA (Java Persistence API)`. **JPA como especificación
+e Hibernate como implementación**, pero ahora no solo existe hibernate como implementación, hay muchos más como
+`Eclipse Link`, etc., pero continuaremos hablando de JPA en general.
+
+### Spring Data JPA
+
+Se dieron cuenta que solo utilizando `Hibernate` simplemente estábamos cambiando nuestro conocimiento de `SQL` por el
+conocimiento de `JPA`, es decir ya no hacíamos consultas `SQL` sino consulta `JPQL`, al final habría un esfuerzo mayor,
+pues estaríamos requiriendo tener ambos conocimientos. Pero sabemos que `JPA` es bastante poderoso, y a veces ese poder
+necesita un poco de ayuda, es ahí que nace `Spring Data JPA`.
+
+`Spring Data JPA` nos ayuda con consultas simples y evita la necesidad de trabajar demasiado con el `Entity Manager`,
+pero si queremos trabajar con el `Entity Manager`, en `Spring Data JPA` hay un entity manager que podemos inyectar
+en los servicios y luego hacer las consultas por nosotros mismos, pero para la mayoría de las consultas simples,
+`Spring Data JPA` simplifica el proceso para ponerlo en funcionamiento, como por ejemplo nos proporciona
+los `Query Methods` (consultas generadas a partir del nombre del método).
+
+### Spring Data JDBC
+
+`Spring Data JDBC` es una forma de alejarnos del borde del abismo de `JPA`, proporciona a los desarrolladores una
+alternativa más sencilla a JPA sin dejar de seguir el paradigma de Spring Data.
+
+`Spring data JDBC` simplifica la implementación de repositorios basados en JDBC. Spring data JDBC añade soporte mejorado
+para las capas de acceso a datos tradicionales basadas en JDBC. Para mantenerlo simple, Spring data JDBC no ofrece
+características como caché, lazy loading, write behind, y muchas otras características de JPA.
+
+En este proyecto trabajaremos precisamente con `Spring Data JDBC` y profundizaremos más en sus detalles.
+
+---
+
 ## [Qué es Spring Data JDBC](https://spring.io/projects/spring-data-jdbc)
 
 Spring Data JDBC, parte de la familia más grande Spring Data, `facilita la implementación de repositorios basados en
 JDBC`. Este módulo trata sobre el soporte mejorado para las capas de acceso a datos basadas en JDBC. Facilita la
 creación de aplicaciones impulsadas por Spring que utilizan tecnologías de acceso a datos.
 
+`Spring Data JDBC` se aloja junto con `Spring Data R2DBC` en el módulo `Spring Data Relational`, que proporciona
+infraestructura para el acceso directo a bases de datos SQL.
+
 Spring Data JDBC pretende ser conceptualmente fácil. Para lograr esto, `NO ofrece almacenamiento en caché, lazy loading,
-escritura detrás o muchas otras características de JPA`. Esto hace que Spring Data JDBC sea un ORM simple, limitado y
+escritura detrás o muchas otras características de JPA`. Esto hace que `Spring Data JDBC` sea un ORM simple, limitado y
 obstinado.
 
 > Fuente: [**Baeldung**](https://www.baeldung.com/spring-data-jdbc-intro)
 >
-> **Spring Data JDBC** es un marco de persistencia que no es tan complejo como Spring Data JPA. **No proporciona caché,
-> carga diferida, escritura posterior ni muchas otras características de JPA**. Sin embargo, tiene su propio ORM y
-> **proporciona la mayoría de las funciones que usamos con Spring Data JPA, como entidades mapeadas, repositorios,
+> `Spring Data JDBC` es un marco de persistencia que no es tan complejo como `Spring Data JPA`. **No proporciona
+> caché, carga diferida, escritura posterior ni muchas otras características de JPA**. Sin embargo, tiene su propio ORM
+> y **proporciona la mayoría de las funciones que usamos con Spring Data JPA, como entidades mapeadas, repositorios,
 > anotaciones de consultas y JdbcTemplate.**
 >
 > Una cosa importante a tener en cuenta es que Spring Data JDBC no ofrece generación de esquemas. Como resultado,
